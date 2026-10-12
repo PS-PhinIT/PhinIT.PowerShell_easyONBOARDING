@@ -177,6 +177,7 @@ Describe 'Exchange: Postfachaktionen' {
     It 'wandelt in ein freigegebenes Postfach um (<Mode>)' -ForEach @(
         @{ Mode = 'Online'; Command = 'Set-Mailbox' }, @{ Mode = 'OnPremises'; Command = 'Set-Mailbox' }
     ) {
+        Mock -ModuleName $script:ExModule Get-EobMailboxInfo { [pscustomobject]@{ RecipientTypeDetails = 'SharedMailbox' } }
         $null = ConvertTo-EobSharedMailbox -Identity 'mmustermann' -Mode $Mode -Confirm:$false
         Should -Invoke -ModuleName $script:ExModule $Command -Times 1 -ParameterFilter { $Type -eq 'Shared' }
     }
@@ -184,17 +185,33 @@ Describe 'Exchange: Postfachaktionen' {
     It 'wandelt im Hybridbetrieb erst in Exchange Online um und gleicht dann das lokale Objekt an' {
         Mock -ModuleName $script:ExModule Get-Mailbox { [pscustomobject]@{ RecipientTypeDetails = 'UserMailbox' } }
         Mock -ModuleName $script:ExModule Set-EobOnPremRemoteMailbox { }
+        Mock -ModuleName $script:ExModule Get-EobMailboxInfo { [pscustomobject]@{ RecipientTypeDetails = 'SharedMailbox' } }
         (ConvertTo-EobSharedMailbox -Identity 'mmustermann' -Mode Hybrid -Confirm:$false).Status | Should -Be 'Succeeded'
         Should -Invoke -ModuleName $script:ExModule Set-Mailbox -Times 1 -ParameterFilter { $Type -eq 'Shared' }
         Should -Invoke -ModuleName $script:ExModule Set-EobOnPremRemoteMailbox -Times 1 -ParameterFilter { $Type -eq 'Shared' }
     }
 
-    It 'meldet eine Warnung, wenn das lokale Objekt im Hybridbetrieb nicht angeglichen werden kann' {
+    It 'schlägt fehl, wenn das lokale Objekt im Hybridbetrieb nicht angeglichen werden kann' {
         Mock -ModuleName $script:ExModule Get-Mailbox { [pscustomobject]@{ RecipientTypeDetails = 'UserMailbox' } }
         Mock -ModuleName $script:ExModule Set-EobOnPremRemoteMailbox { throw 'Parameter Type not supported.' }
-        $result = ConvertTo-EobSharedMailbox -Identity 'mmustermann' -Mode Hybrid -Confirm:$false
-        $result.Status | Should -Be 'Warning'
-        $result.Message | Should -Match 'Set-RemoteMailbox'
+        { ConvertTo-EobSharedMailbox -Identity 'mmustermann' -Mode Hybrid -Confirm:$false } | Should -Throw '*Set-RemoteMailbox*'
+    }
+
+    It 'verlangt einen bestätigten SharedMailbox-Zustand nach der Umwandlung' -ForEach @(
+        @{ Mailbox = $null }, @{ Mailbox = [pscustomobject]@{ RecipientTypeDetails = 'UserMailbox' } }
+    ) {
+        Mock -ModuleName $script:ExModule Get-EobMailboxInfo { $Mailbox }
+        { ConvertTo-EobSharedMailbox -Identity 'mmustermann' -Mode Online -Confirm:$false } | Should -Throw '*nicht als SharedMailbox bestätigt*'
+    }
+
+    It 'sperrt die Lizenzfreigabe für Litigation Hold und aktive Archive' -ForEach @(
+        @{ Held = $true; Archive = 'None' }, @{ Held = $false; Archive = 'Active' }
+    ) {
+        Mock -ModuleName $script:ExModule Get-EobMailboxInfo {
+            [pscustomobject]@{ RecipientTypeDetails = 'SharedMailbox'; LitigationHoldEnabled = $Held; ArchiveStatus = $Archive }
+        }
+        { ConvertTo-EobSharedMailbox -Identity 'mmustermann' -Mode Online -VerifyLicenseEligibility -Confirm:$false } | Should -Throw '*Lizenzentfernung ist gesperrt*'
+        (ConvertTo-EobSharedMailbox -Identity 'mmustermann' -Mode Online -Confirm:$false).Status | Should -Be 'Succeeded'
     }
 
     It 'bearbeitet im Hybridbetrieb ein lokal verbliebenes Postfach über die lokale Sitzung' {

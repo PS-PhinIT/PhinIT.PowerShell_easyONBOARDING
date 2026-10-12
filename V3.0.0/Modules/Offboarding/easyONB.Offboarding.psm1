@@ -303,6 +303,7 @@ function ConvertTo-EobOffboardingRequest {
         Reason                = ([string](& $get 'Reason' '')).Trim()
         Notes                 = ([string](& $get 'Notes' '')).Trim()
         ForwardTo             = ([string](& $get 'ForwardTo' '')).Trim()
+        AuthorizedHomeAccessAccount = ([string](& $get 'AuthorizedHomeAccessAccount' '')).Trim()
         AutoReplyMessage      = ([string](& $get 'AutoReplyMessage' '')).Trim()
         TargetOU              = ([string](& $get 'TargetOU' '')).Trim()
         KeepGroups            = @(Get-EobListValue -Value (& $get 'KeepGroups' $null))
@@ -662,6 +663,30 @@ function New-EobOffboardingPlan {
     foreach ($phase in @('Immediate', 'ExitDate', 'Retention', 'FinalDeletion')) {
         $details.PhaseStepCount[$phase] = 0
         $dueDate = $phaseDates[$phase]
+        $conversionDependency = @()
+        $conversionRequested = $actions['ConvertToSharedMailbox'] -ne 'Off'
+        $phaseHasLicenses = @($groups | Where-Object {
+                $_.Category -eq 'License' -and ($actions['RemoveLicenseGroups'] -eq $phase -or ($_.Remove -and $actions['RemoveGroups'] -eq $phase))
+            }).Count -gt 0
+        if ($conversionRequested -and $phaseHasLicenses) {
+            $conversionDependency = @("SharedMailboxConversionRequired-$phase")
+            $phaseOrder = @('Immediate', 'ExitDate', 'Retention', 'FinalDeletion')
+            $conversionIndex = [array]::IndexOf($phaseOrder, $actions['ConvertToSharedMailbox'])
+            $phaseIndex = [array]::IndexOf($phaseOrder, $phase)
+            if ($phaseIndex -lt $conversionIndex) {
+                Add-EobPlanFinding -Plan $plan -Severity Error -Code 'OFF_LICENSE_BEFORE_CONVERSION' -Message "Lizenzentfernung in $phase darf nicht vor der Postfachumwandlung stattfinden."
+            }
+            elseif ($phaseIndex -gt $conversionIndex -and $mailboxAvailable) {
+                # Queued plans have no prior runtime results: verify conversion again in this phase.
+                $gate = Add-EobPlanStep -Plan $plan -Action 'ConvertToSharedMailbox' -Title 'Freigegebenes Postfach vor Lizenzentfernung erneut prüfen' -Target $user.SamAccountName `
+                    -Handler 'ConvertTo-EobSharedMailbox' -Phase $phase -Risk High -Parameters @{ Identity = $mailboxIdentity; Mode = $exchangeMode; VerifyLicenseEligibility = $true }
+                $conversionDependency = @($gate.Id)
+                $details.PhaseStepCount[$phase]++
+            }
+            if (-not $mailboxAvailable) {
+                Add-EobPlanFinding -Plan $plan -Severity Warning -Code 'OFF_LICENSE_CONVERSION_UNAVAILABLE' -Message 'Lizenzentfernung bleibt gesperrt, solange die angeforderte Postfachumwandlung nicht geprüft werden kann.'
+            }
+        }
         foreach ($action in $script:ActionOrder) {
             if ($actions[$action] -ne $phase) { continue }
             $before = $plan.Steps.Count
@@ -716,7 +741,10 @@ function New-EobOffboardingPlan {
                 'RemoveGroups' {
                     foreach ($group in @($groups | Where-Object Remove)) {
                         $risk = if ($group.Category -eq 'Privileged') { 'High' } else { 'Medium' }
+                        $groupDependencies = @()
+                        if ($group.Category -eq 'License') { $groupDependencies = $conversionDependency }
                         $null = Add-EobPlanStep @common -Title "Aus Gruppe entfernen: $($group.Name)" -Handler 'Remove-EobAdGroupMembership' -Risk $risk `
+                            -DependsOn $groupDependencies `
                             -Parameters @{ Identity = $guid; Group = $group.DistinguishedName; AllowPrivileged = $allowPrivileged } `
                             -Details ($stepDetails + "Kategorie: $($group.Category)$(if ($group.Reason) { ' - ' + $group.Reason })")
                     }
@@ -724,6 +752,7 @@ function New-EobOffboardingPlan {
                 'RemoveLicenseGroups' {
                     foreach ($group in @($groups | Where-Object Category -EQ 'License')) {
                         $null = Add-EobPlanStep @common -Title "Lizenzgruppe entfernen: $($group.Name)" -Handler 'Remove-EobAdGroupMembership' -Risk Medium `
+                            -DependsOn $conversionDependency `
                             -Parameters @{ Identity = $guid; Group = $group.DistinguishedName; AllowPrivileged = $allowPrivileged } -Details $stepDetails
                     }
                 }
@@ -786,8 +815,9 @@ function New-EobOffboardingPlan {
                 }
                 'ConvertToSharedMailbox' {
                     if ($mailboxAvailable) {
-                        $null = Add-EobPlanStep @common -Title $script:ActionTitles[$action] -Handler 'ConvertTo-EobSharedMailbox' -Risk High -Parameters @{ Identity = $mailboxIdentity; Mode = $exchangeMode } `
+                        $conversion = Add-EobPlanStep @common -Title $script:ActionTitles[$action] -Handler 'ConvertTo-EobSharedMailbox' -Risk High -Parameters @{ Identity = $mailboxIdentity; Mode = $exchangeMode; VerifyLicenseEligibility = $phaseHasLicenses } `
                             -Details ($stepDetails + 'Vor dem Entfernen der Lizenz; Größe/Archiv auf Lizenzbedarf prüfen.')
+                        $conversionDependency = @($conversion.Id)
                     }
                 }
                 'DocumentMailboxPermissions' {
@@ -815,16 +845,25 @@ function New-EobOffboardingPlan {
                 }
                 'GrantManagerHomeAccess' {
                     $roots = @(Get-EobConfigValue -Config $Config -Section 'FileServer' -Key 'AllowedRoots' -As List)
+                    $netbios = if ($null -ne $connection.Domain) { [string](Get-EobPropertyValue -InputObject $connection.Domain -Name 'NetBiosName' -Default '') } else { '' }
+                    $authorization = [string](Get-EobPropertyValue -InputObject $Request -Name 'AuthorizedHomeAccessAccount' -Default '')
+                    $managerPrincipal = if ($netbios -and $null -ne $managerInfo) { "$netbios\$($managerInfo.SamAccountName)" } else { '' }
                     if (-not $user.HomeDirectory -or $null -eq $managerInfo -or -not $managerInfo.SamAccountName) {
                         Add-EobPlanFinding -Plan $plan -Severity Information -Code 'OFF_NO_HOME_ACCESS' -Message 'Lesezugriff für die Führungskraft entfällt (kein Home-Verzeichnis oder keine Führungskraft).'
                     }
-                    elseif (@($roots | Where-Object { Test-EobPathWithin -Path $user.HomeDirectory -Root $_ }).Count -eq 0) {
-                        Add-EobPlanFinding -Plan $plan -Severity Warning -Code 'OFF_HOME_NOT_ALLOWED' -Message "Home-Verzeichnis '$($user.HomeDirectory)' liegt nicht unter [FileServer] AllowedRoots."
+                    elseif (-not $authorization -or ($authorization -ine $managerInfo.SamAccountName -and
+                            (-not $managerPrincipal -or $authorization -ine $managerPrincipal))) {
+                        Add-EobPlanFinding -Plan $plan -Severity Warning -Code 'OFF_HOME_ACCESS_AUTH_REQUIRED' -Message 'Home-Zugriff entfällt: das Empfängerkonto muss ausdrücklich über AuthorizedHomeAccessAccount freigegeben werden; das AD-Managerattribut ist keine Freigabe.'
                     }
                     else {
-                        $netbios = if ($null -ne $connection.Domain) { [string](Get-EobPropertyValue -InputObject $connection.Domain -Name 'NetBiosName' -Default '') } else { '' }
-                        $null = Add-EobPlanStep @common -Title "$($script:ActionTitles[$action]) ($($managerInfo.DisplayName))" -Handler 'Grant-EobHomeDirectoryAccess' -Risk Medium `
-                            -Parameters @{ Path = $user.HomeDirectory; Account = $managerInfo.SamAccountName; DomainNetBiosName = $netbios; AllowedRoots = $roots } -Details $stepDetails
+                        try {
+                            Assert-EobOffboardingHomePath -Path $user.HomeDirectory -SamAccountName $user.SamAccountName -AllowedRoots $roots
+                            $null = Add-EobPlanStep @common -Title "$($script:ActionTitles[$action]) ($($managerInfo.DisplayName))" -Handler 'Grant-EobHomeDirectoryAccess' -Risk High `
+                                -Parameters @{ Path = $user.HomeDirectory; SamAccountName = $user.SamAccountName; Account = $managerInfo.SamAccountName; AuthorizedAccount = $Request.AuthorizedHomeAccessAccount; DomainNetBiosName = $netbios; AllowedRoots = $roots } -Details $stepDetails
+                        }
+                        catch {
+                            Add-EobPlanFinding -Plan $plan -Severity Warning -Code 'OFF_HOME_NOT_ALLOWED' -Message "Home-Zugriff entfällt: $($_.Exception.Message)"
+                        }
                     }
                 }
                 'ClearProfilePath' {
@@ -933,9 +972,8 @@ function Complete-EobOffboardingRun {
     .SYNOPSIS
         Vermerkt erledigte Phasen und aktualisiert nach Live-Ausführungen die Warteschlange.
     .DESCRIPTION
-        Eine Phase gilt als erledigt, wenn keiner ihrer Schritte fehlgeschlagen ist und die
-        Ausführung nicht abgebrochen wurde. Fehlgeschlagene Phasen werden beim nächsten Lauf
-        erneut ausgeführt.
+        Eine Phase gilt nur als erledigt, wenn alle aktivierten Phasen- und Dokumentationsschritte
+        erfolgreich sind (in der Simulation: Simulated). Unvollständige Phasen bleiben wiederholbar.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]
@@ -947,9 +985,15 @@ function Complete-EobOffboardingRun {
 
     $details = $Plan.Offboarding
     foreach ($phaseName in $SelectedPhase) {
-        $failed = @($Plan.Steps | Where-Object { $_.Phase -eq $phaseName -and $_.Status -eq 'Failed' }).Count
+        $expectedStatus = if ($Plan.Simulation) { 'Simulated' } else { 'Succeeded' }
+        $incomplete = @($Plan.Steps | Where-Object {
+                $_.Enabled -and ($_.Phase -eq $phaseName -or ($_.Phase -eq $script:AlwaysPhase -and $Plan.Status -ne 'Scheduled')) -and $_.Status -ne $expectedStatus
+            }).Count
         $interrupted = $Plan.Aborted -or $Plan.CancelRequested
-        if ($failed -eq 0 -and -not $interrupted -and $phaseName -notin $details.CompletedPhases) {
+        if ($incomplete -gt 0 -or $interrupted) {
+            $details.CompletedPhases = @($details.CompletedPhases | Where-Object { $_ -ne $phaseName })
+        }
+        if ($incomplete -eq 0 -and -not $interrupted -and $phaseName -notin $details.CompletedPhases) {
             $details.CompletedPhases += $phaseName
         }
     }
@@ -1029,6 +1073,7 @@ function ConvertTo-EobOffboardingQueueRequest {
         Reason                = $request.Reason
         Notes                 = $request.Notes
         ForwardTo             = $request.ForwardTo
+        AuthorizedHomeAccessAccount = Get-EobPropertyValue -InputObject $request -Name 'AuthorizedHomeAccessAccount' -Default ''
         AutoReplyMessage      = $request.AutoReplyMessage
         TargetOU              = $request.TargetOU
         KeepGroups            = @($request.KeepGroups)
@@ -1137,7 +1182,7 @@ function Save-EobOffboardingQueueEntry {
         })
 
     $dates = [ordered]@{}
-    foreach ($phase in @('ExitDate', 'Retention', 'FinalDeletion')) {
+    foreach ($phase in @('Immediate', 'ExitDate', 'Retention', 'FinalDeletion')) {
         $value = $details.PhaseDates[$phase]
         $dates[$phase] = if ($null -ne $value) { ([datetime]$value).ToString('yyyy-MM-dd') } else { $null }
     }
@@ -1155,6 +1200,7 @@ function Save-EobOffboardingQueueEntry {
         DisplayName       = $details.User.DisplayName
         ExitDate          = $details.Request.ExitDate.ToString('yyyy-MM-dd')
         PhaseDates        = $dates
+        PhaseStepCount    = $details.PhaseStepCount
         CompletedPhases   = @($details.CompletedPhases | Select-Object -Unique)
         Privileged        = [bool]$details.Privileged
         RequiresIntegration = @($details.RequiresIntegration)
@@ -1202,10 +1248,13 @@ function Get-EobOffboardingQueue {
         $completed = @($entry['CompletedPhases'])
         $nextPhase = ''
         $nextDate = $null
-        foreach ($phase in @('ExitDate', 'Retention')) {
+        foreach ($phase in $script:ExecutablePhases) {
             if ($phase -in $completed) { continue }
+            if ($entry['PhaseStepCount'] -is [System.Collections.IDictionary] -and
+                $entry['PhaseStepCount'].Contains($phase) -and [int]$entry['PhaseStepCount'][$phase] -eq 0) { continue }
             $nextPhase = $phase
             $nextDate = ConvertTo-EobDate -Value ([string]$entry['PhaseDates'][$phase])
+            if ($phase -eq 'Immediate' -and $null -eq $nextDate) { $nextDate = $Now.Date }
             break
         }
         $deletionDate = if ($entry['PhaseDates']['FinalDeletion']) { ConvertTo-EobDate -Value ([string]$entry['PhaseDates']['FinalDeletion']) } else { $null }
@@ -1626,34 +1675,95 @@ function Move-EobHomeDirectoryToArchive {
     return New-EobResult -Status Succeeded -Message "Home-Verzeichnis archiviert: $target" -Data @{ ArchivedHomeDirectory = $target }
 }
 
+function Assert-EobOffboardingHomePath {
+    <#
+        Nur der direkte Unterordner <AllowedRoot>/<SamAccountName> ist vertrauenswürdig.
+        AD-HomeDirectory ist kein Eigentumsnachweis; Links werden einschließlich aller Vorfahren abgelehnt.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$SamAccountName,
+        [Parameter(Mandatory)][string[]]$AllowedRoots
+    )
+
+    if (-not (Test-EobSamAccountName -Value $SamAccountName) -or
+        (Get-EobSafeFileName -Name $SamAccountName) -cne $SamAccountName) {
+        throw "Ungültiger Home-Verzeichnis-Anmeldename: $SamAccountName"
+    }
+    if ($Path -match '(^|[\\/])\.{1,2}([\\/]|$)' -or $Path -match '[. ]([\\/]|$)') {
+        throw "Home-Verzeichnis enthält unsichere Pfadsegmente: $Path"
+    }
+    $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    foreach ($root in $AllowedRoots) {
+        if ($root -and [IO.Path]::IsPathFullyQualified($root) -and
+            [IO.Path]::GetFullPath($Path).TrimEnd('\', '/').Equals([IO.Path]::GetFullPath($root).TrimEnd('\', '/'), $comparison)) {
+            throw "Ein Stammpfad selbst wird nie berechtigt: $Path"
+        }
+    }
+    $matched = $false
+    foreach ($root in $AllowedRoots) {
+        if ([string]::IsNullOrWhiteSpace($root) -or
+            $root -match '(^|[\\/])\.{1,2}([\\/]|$)' -or $root -match '[. ]([\\/]|$)') { continue }
+        if (-not [IO.Path]::IsPathFullyQualified($root) -or -not [IO.Path]::IsPathFullyQualified($Path)) { continue }
+        $expected = [IO.Path]::Combine($root, $SamAccountName)
+        if ((Test-EobPathWithin -Path $Path -Root $root) -and
+            [IO.Path]::GetFullPath($Path).TrimEnd('\', '/').Equals([IO.Path]::GetFullPath($expected).TrimEnd('\', '/'), $comparison)) {
+            $matched = $true
+            break
+        }
+    }
+    if (-not $matched) { throw "Home-Verzeichnis muss exakt einem erlaubten Stammpfad/$SamAccountName entsprechen: $Path" }
+
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if ($item.PSProvider.Name -ne 'FileSystem' -or -not $item.PSIsContainer) { throw "Kein Dateisystem-Verzeichnis: $Path" }
+    while ($null -ne $item) {
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "ReparsePoint im Home-Verzeichnis-Pfad: $($item.FullName)" }
+        $volumeRoot = [IO.Path]::GetPathRoot($item.FullName)
+        if ($item.FullName.TrimEnd('\', '/').Equals($volumeRoot.TrimEnd('\', '/'), $comparison)) { break }
+        $parent = Split-Path -Path $item.FullName -Parent
+        if (-not $parent -or $parent -eq $item.FullName) { break }
+        $item = Get-Item -LiteralPath $parent -Force -ErrorAction Stop
+    }
+}
+
 function Grant-EobHomeDirectoryAccess {
     <#
     .SYNOPSIS
         Gewährt einem Konto (z. B. der Führungskraft) Lesezugriff auf ein Home-Verzeichnis.
+    .DESCRIPTION
+        Nur AllowedRoot/SamAccountName ohne ReparsePoints ist zulässig. AuthorizedAccount muss
+        vom aufrufenden Administrator unabhängig vom veränderbaren AD-Managerattribut freigegeben
+        werden und dem Empfänger entsprechen. Ohne diese ausdrückliche Freigabe wird abgebrochen.
+        Zulässig sind sAMAccountName oder DomainNetBiosName\sAMAccountName; andere Domänen und UPNs
+        werden nicht durch Entfernen von Präfixen oder Suffixen akzeptiert.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$SamAccountName,
         [Parameter(Mandatory)][string]$Account,
+        [string]$AuthorizedAccount = '',
         [string]$DomainNetBiosName,
         [Parameter(Mandatory)][string[]]$AllowedRoots,
         [ValidateSet('ReadAndExecute', 'Modify')][string]$Rights = 'ReadAndExecute'
     )
 
-    if (@($AllowedRoots | Where-Object { Test-EobPathWithin -Path $Path -Root $_ }).Count -eq 0) { throw "Pfad liegt nicht unter einem erlaubten Stammpfad: $Path" }
     if (-not (Test-EobSamAccountName -Value $Account)) { throw "Ungültiges Konto: $Account" }
+    if ($DomainNetBiosName -and $DomainNetBiosName -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$') { throw 'Ungültiger NetBIOS-Domänenname.' }
     $principal = if ($DomainNetBiosName) { "$DomainNetBiosName\$Account" } else { $Account }
+    if (-not $AuthorizedAccount -or ($AuthorizedAccount -ine $Account -and $AuthorizedAccount -ine $principal)) { throw "Empfängerkonto ist nicht ausdrücklich freigegeben: $principal" }
+    Assert-EobOffboardingHomePath -Path $Path -SamAccountName $SamAccountName -AllowedRoots $AllowedRoots
     if (-not $PSCmdlet.ShouldProcess($Path, "$Rights für $principal gewähren")) {
         return New-EobNotProcessedResult -Message "$principal würde $Rights auf $Path erhalten."
     }
-    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
-        return New-EobResult -Status Skipped -Message "Home-Verzeichnis nicht vorhanden: $Path"
-    }
     if (-not $IsWindows) { throw 'NTFS-Berechtigungen können nur unter Windows gesetzt werden.' }
+    Assert-EobOffboardingHomePath -Path $Path -SamAccountName $SamAccountName -AllowedRoots $AllowedRoots
     $acl = Get-Acl -LiteralPath $Path
     $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($principal, $Rights, 'ContainerInherit,ObjectInherit', 'None', 'Allow')
     $acl.AddAccessRule($rule)
+    Assert-EobOffboardingHomePath -Path $Path -SamAccountName $SamAccountName -AllowedRoots $AllowedRoots
     Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
     return New-EobResult -Status Succeeded -Message "$principal hat $Rights auf $Path erhalten."
 }

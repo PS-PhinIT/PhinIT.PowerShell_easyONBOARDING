@@ -16,6 +16,12 @@ Navigation *Offboarding*, Registerkarte *Neuer Vorgang*:
 4. **Ausführung:** Die fälligen Phasen werden Schritt für Schritt ausgeführt; offene Phasen gehen in
    die Warteschlange.
 
+Das zusätzliche **Handout (HTML/PDF)** ist standardmäßig abgewählt und wird nur nach
+ausdrücklicher Auswahl erzeugt, auch bei einer manuellen Löschung. Es enthält die
+Vorgangszusammenfassung und Ergebnisse, keine Kennwörter; ohne PDF-Engine bleibt HTML.
+Technische Vorgangsberichte, Audit und notwendige Zustandsberichte entstehen unabhängig
+davon. Bei unbeaufsichtigten geplanten Phasen wird kein Handout automatisch erzeugt.
+
 Registerkarte *Warteschlange*: offene Vorgänge mit nächster Phase und Fälligkeit, *Fällige Phase
 ausführen* (mit Vorschau und Bestätigung), *Löschung prüfen …*, *Vorgang abbrechen …* (mit
 Begründung) und *Zustandsberichte öffnen*.
@@ -34,6 +40,24 @@ Eine Phase wird erst ausgeführt, wenn alle vorherigen Phasen erledigt sind. Feh
 bleiben offen und werden beim nächsten Lauf erneut versucht. Folgephasen werden immer neu geplant
 und gegen das AD geprüft (u. a. Abgleich der ObjectGUID); passt das Konto nicht mehr, wird der
 Vorgang blockiert.
+
+Unvollständige oder übersprungene aktivierte Schritte schließen eine Phase nicht ab. Eine
+offene Sofort-Phase bleibt unmittelbar fällig. Wird die Umwandlung in ein freigegebenes
+Postfach angefordert, werden Lizenzgruppen erst nach erfolgreicher Umwandlung entfernt;
+eine fehlgeschlagene oder unvollständige Hybrid-Umwandlung darf keinen Lizenzentzug auslösen.
+Bei diesem Übergang bleibt die Lizenz auch bei Litigation Hold oder aktivem Archiv erhalten.
+Die bestätigte Umwandlung bedeutet nicht automatisch, dass das Postfach lizenzfrei ist:
+Größe, Archiv und Aufbewahrungsanforderungen vorab in Exchange prüfen. Bei nicht geklärtem
+Lizenzbedarf `RemoveLicenseGroups` in der Vorlage deaktivieren und Lizenzgruppen auch von
+allgemeinen Gruppenentfernungen ausnehmen; erst nach der Prüfung manuell freigeben.
+
+Zugriff auf ein Home-Verzeichnis verlangt eine ausdrückliche Freigabe des Empfängerkontos
+(`AuthorizedHomeAccessAccount` in der Anfrage: einfacher `sAMAccountName`, ohne Domänenpräfix,
+z. B. `chefin`; leer = kein Zugriff). Der AD-Eintrag `manager` allein autorisiert
+keinen Zugriff. Das Ziel muss exakt `<AllowedRoot>/<SamAccountName>` sein; Stammpfade,
+fremde Verzeichnisse, Traversal und Reparse-Point-Vorfahren werden abgelehnt. Benutzerordner
+mit abweichender Namenskonvention müssen außerhalb dieses automatischen Vorgangs geprüft
+und berechtigt werden. Windows-ACLs vor Produktivbetrieb in einer Testumgebung prüfen.
 
 ## Vorlagen
 

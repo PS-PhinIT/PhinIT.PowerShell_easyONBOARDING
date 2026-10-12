@@ -142,7 +142,7 @@
                 PdfTimeoutSeconds  = @{ Type = 'Int'; Min = 5; Max = 300; Default = '60'; Description = 'Zeitlimit der PDF-Erzeugung in Sekunden.' }
                 Formats            = @{ Type = 'List'; Default = 'Html;Json'; Description = 'Berichtsformate: Html, Json, Csv, Txt, Pdf.' }
                 PdfEngine          = @{ Type = 'Enum'; Values = @('Auto', 'Edge', 'Wkhtmltopdf', 'None'); Default = 'Auto'; Description = 'PDF-Erzeugung (Auto = Edge, sonst wkhtmltopdf, sonst HTML).' }
-                CreateWelcomeDocument = @{ Type = 'Bool'; Default = '1'; Description = 'Willkommensdokument aus TemplatePathHTML erzeugen (ohne Kennwort).' }
+                CreateWelcomeDocument = @{ Type = 'Bool'; Default = '1'; Unused = $true; Description = 'Legacy-Schlüssel, wird ignoriert: Das Onboarding-Handout aus TemplatePathHTML wird immer erzeugt (ohne Kennwort).' }
             }
         }
 

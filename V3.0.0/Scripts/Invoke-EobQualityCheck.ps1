@@ -272,7 +272,7 @@ function Test-SecretCheck {
 }
 
 function Test-DocumentationCheck {
-    $required = @('docs/ARCHITECTURE.md', 'docs/INSTALLATION.md', 'docs/CONFIGURATION.md', 'docs/ONBOARDING.md', 'docs/OFFBOARDING.md',
+    $required = @('docs/INSTALLATION.md', 'docs/CONFIGURATION.md', 'docs/ONBOARDING.md', 'docs/OFFBOARDING.md',
         'docs/MIGRATION.md', 'docs/TESTING.md', 'docs/CONFIGURATION-REFERENCE.md', 'ReportTemplates/README.md')
     foreach ($name in $script:ProjectFiles) {
         if (-not (Test-Path -LiteralPath (Get-ProjectFilePath -Name $name) -PathType Leaf)) {
@@ -283,6 +283,13 @@ function Test-DocumentationCheck {
         if (-not (Test-Path -LiteralPath (Join-Path -Path $Root -ChildPath $name) -PathType Leaf)) {
             New-QualityFinding -Check 'Docs' -File $name -Message 'Pflichtdokument fehlt.'
         }
+    }
+    $architecture = Join-Path -Path $Root -ChildPath 'docs/ARCHITECTURE.md'
+    $contributing = Get-ProjectFilePath -Name 'CONTRIBUTING.md'
+    if (-not (Test-Path -LiteralPath $architecture -PathType Leaf) -and
+        (-not (Test-Path -LiteralPath $contributing -PathType Leaf) -or
+        [System.IO.File]::ReadAllText($contributing) -notmatch '(?m)^## Architektur\s*$')) {
+        New-QualityFinding -Check 'Docs' -File 'CONTRIBUTING.md' -Message 'Pflichtdokument zur Architektur fehlt (docs/ARCHITECTURE.md oder Abschnitt Architektur in CONTRIBUTING.md).'
     }
     # Die Konfigurationsreferenz wird aus dem Schema erzeugt und muss aktuell sein.
     $generator = Join-Path -Path $Root -ChildPath 'Scripts/Export-EobConfigurationReference.ps1'

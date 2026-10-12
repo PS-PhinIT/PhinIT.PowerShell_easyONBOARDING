@@ -643,8 +643,8 @@ function Test-EobConfigurationRule {
         }
     }
     $templatePath = Get-EobConfigValue -Config $Config -Section 'Report' -Key 'TemplatePathHTML' -As Path
-    if ($templatePath -and (Get-EobConfigValue -Config $Config -Section 'Report' -Key 'CreateWelcomeDocument' -As Bool) -and -not (Test-Path -LiteralPath $templatePath -PathType Leaf)) {
-        New-EobFinding -Severity Warning -Code 'CFG_TEMPLATE_NOT_FOUND' -Field 'Report.TemplatePathHTML' -Message "HTML-Vorlage nicht gefunden: $templatePath"
+    if (-not $templatePath -or -not (Test-Path -LiteralPath $templatePath -PathType Leaf)) {
+        New-EobFinding -Severity Warning -Code 'CFG_TEMPLATE_NOT_FOUND' -Field 'Report.TemplatePathHTML' -Message "Vorlage für das verpflichtende Onboarding-Handout nicht gefunden: $templatePath. Onboarding bleibt bis zur Korrektur gesperrt."
     }
 }
 

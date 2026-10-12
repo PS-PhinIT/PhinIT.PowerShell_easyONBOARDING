@@ -246,7 +246,7 @@
                                 <CheckBox x:Name="OnbProxyCheck" Content="E-Mail-Adressen (proxyAddresses) setzen" />
                                 <CheckBox x:Name="OnbHomeDirCheck" Content="Home-Verzeichnis anlegen" />
                                 <CheckBox x:Name="OnbMailboxCheck" Content="Postfach anlegen (Exchange Server/Hybrid)" />
-                                <CheckBox x:Name="OnbWelcomeDocCheck" Content="Willkommensdokument erzeugen (ohne Kennwort)" />
+                                <CheckBox x:Name="OnbWelcomeDocCheck" Content="Willkommens-HandOut erzeugen (Pflicht, ohne Kennwort)" IsChecked="True" IsEnabled="False" />
                                 <CheckBox x:Name="OnbWelcomeMailCheck" Content="Welcome-Mail senden (ohne Kennwort)" />
                                 <CheckBox x:Name="OnbSyncCheck" Content="Entra Connect Sync auslösen" />
                                 <TextBlock x:Name="OnbOptionsInfo" Style="{StaticResource CaptionTextStyle}" Margin="0,10,0,0" />

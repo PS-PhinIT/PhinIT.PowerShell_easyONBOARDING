@@ -462,6 +462,7 @@ function Get-EobMailboxInfo {
         ForwardingAddress             = [string](Get-EobPropertyValue -InputObject $mailbox -Name 'ForwardingAddress' -Default '')
         DeliverToMailboxAndForward    = [bool](Get-EobPropertyValue -InputObject $mailbox -Name 'DeliverToMailboxAndForward' -Default $false)
         LitigationHoldEnabled         = [bool](Get-EobPropertyValue -InputObject $mailbox -Name 'LitigationHoldEnabled' -Default $false)
+        ArchiveStatus                 = [string](Get-EobPropertyValue -InputObject $mailbox -Name 'ArchiveStatus' -Default '')
     }
 }
 
@@ -659,7 +660,8 @@ function ConvertTo-EobSharedMailbox {
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)][string]$Identity,
-        [Parameter(Mandatory)][ValidateSet('Online', 'OnPremises', 'Hybrid')][string]$Mode
+        [Parameter(Mandatory)][ValidateSet('Online', 'OnPremises', 'Hybrid')][string]$Mode,
+        [switch]$VerifyLicenseEligibility
     )
 
     if (-not $PSCmdlet.ShouldProcess($Identity, 'In freigegebenes Postfach umwandeln')) {
@@ -673,9 +675,18 @@ function ConvertTo-EobSharedMailbox {
             $null = Invoke-EobExchangeCommand -Name 'Set-RemoteMailbox' -Location OnPremises -Mode $Mode -Parameters @{ Identity = $Identity; Type = 'Shared' }
         }
         catch {
-            return New-EobResult -Status Warning -Message ("Postfach $Identity in Exchange Online umgewandelt, das lokale Objekt aber nicht angeglichen: " +
+            throw ("Postfach $Identity in Exchange Online umgewandelt, das lokale Objekt aber nicht angeglichen: " +
                 "$($_.Exception.Message) Bitte lokal 'Set-RemoteMailbox -Identity $Identity -Type Shared' ausführen.")
         }
+    }
+    $verified = Get-EobMailboxInfo -Identity $Identity -Mode $Mode
+    if ($null -eq $verified -or $verified.RecipientTypeDetails -ne 'SharedMailbox') {
+        throw "Postfachumwandlung für $Identity ist noch nicht als SharedMailbox bestätigt; Lizenz bleibt erforderlich."
+    }
+    if ($VerifyLicenseEligibility -and
+        ([bool](Get-EobPropertyValue -InputObject $verified -Name 'LitigationHoldEnabled' -Default $false) -or
+        (Get-EobPropertyValue -InputObject $verified -Name 'ArchiveStatus' -Default '') -eq 'Active')) {
+        throw "Postfach $Identity hat Litigation Hold oder ein aktives Archiv; Lizenzentfernung ist gesperrt."
     }
     return New-EobResult -Status Succeeded -Message "Postfach $Identity in ein freigegebenes Postfach umgewandelt. Lizenzbedarf prüfen (Größe/Archiv)."
 }

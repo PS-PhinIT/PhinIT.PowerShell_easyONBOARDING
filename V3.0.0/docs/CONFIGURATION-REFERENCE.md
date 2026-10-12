@@ -144,7 +144,7 @@ Berichte und Vorlagen.
 | `PdfTimeoutSeconds` | Int (5–300) | `60` | Zeitlimit der PDF-Erzeugung in Sekunden. |
 | `Formats` | List | `Html;Json` | Berichtsformate: Html, Json, Csv, Txt, Pdf. |
 | `PdfEngine` | Enum (Auto, Edge, Wkhtmltopdf, None) | `Auto` | PDF-Erzeugung (Auto = Edge, sonst wkhtmltopdf, sonst HTML). |
-| `CreateWelcomeDocument` | Bool | `1` | Willkommensdokument aus TemplatePathHTML erzeugen (ohne Kennwort). |
+| `CreateWelcomeDocument` | Bool | `1` | *Ohne Wirkung.* Legacy-Schlüssel, wird ignoriert: Das Onboarding-Handout aus TemplatePathHTML wird immer erzeugt (ohne Kennwort). |
 
 ## [CustomPWLabels]
 

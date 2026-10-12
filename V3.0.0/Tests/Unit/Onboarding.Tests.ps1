@@ -52,7 +52,14 @@ Title=Vertriebsmitarbeiter
         param([string]$Extra = '')
         $path = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.ini')
         Set-Content -LiteralPath $path -Value ($script:BaseIni + "`n" + $Extra) -Encoding utf8
-        return Import-EobConfiguration -Path $path -NoIncludes
+        $config = Import-EobConfiguration -Path $path -NoIncludes
+        $config.Sections['Report']['ReportPath'] = Join-Path $TestDrive 'reports'
+        if (-not $config.Sections['Report'].Contains('TemplatePathHTML')) {
+            $template = Join-Path $TestDrive 'handout.html'
+            Set-Content -LiteralPath $template -Value '<html lang="de"><body>{{Vorname}} {{Nachname}}: {{LoginName}}</body></html>' -Encoding utf8
+            $config.Sections['Report']['TemplatePathHTML'] = $template
+        }
+        return $config
     }
 
     function script:New-TestRequest {
@@ -285,6 +292,29 @@ Describe 'Onboarding-Plan' {
         $parameters.Path | Should -Be 'OU=Mitarbeiter,DC=example,DC=local'
     }
 
+    It 'plant das Handout trotz Opt-out für interne und externe Konten (Extern=<External>)' -ForEach @(
+        @{ External = $false }, @{ External = $true }
+    ) {
+        $request = New-TestRequest -Data @{ CreateWelcomeDocument = $false; IsExternal = $External }
+        $request.CreateWelcomeDocument | Should -BeTrue
+        $request.CreateWelcomeDocument = $false
+        $plan = New-EobOnboardingPlan -Request $request -Config $script:Config
+        @($plan.Steps | Where-Object Action -EQ 'WelcomeDocument').Count | Should -Be 1
+    }
+
+    It 'sperrt Onboarding bei fehlender Handout-Vorlage vor dem Anlegen eines Kontos' {
+        $config = New-TestConfig
+        $config.Sections['Report']['TemplatePathHTML'] = Join-Path $TestDrive 'missing-handout.html'
+        $plan = New-EobOnboardingPlan -Request (New-TestRequest -Config $config) -Config $config
+        $plan.Findings.Code | Should -Contain 'ONB_HANDOUT_TEMPLATE_MISSING'
+        Test-EobPlanExecutable -Plan $plan | Should -BeFalse
+    }
+
+    It 'übernimmt die Bemerkung in den redigierten Vorgangsbericht' {
+        $plan = New-EobOnboardingPlan -Request (New-TestRequest -Data @{ Notes = 'Laptop bei Übergabe bereitstellen' }) -Config $script:Config
+        (New-EobPlanReport -Plan $plan).Summary['Bemerkung'] | Should -Be 'Laptop bei Übergabe bereitstellen'
+    }
+
     It 'übernimmt Rollenvorlagen (Gruppen, Lizenz, Position)' {
         $plan = New-EobOnboardingPlan -Request (New-TestRequest -Data @{ RoleTemplate = 'Vertrieb'; LicenseKey = '' }) -Config $script:Config
         $groups = @($plan.Steps | Where-Object Action -EQ 'AddGroup' | ForEach-Object { $_.Parameters.Group })
@@ -353,6 +383,8 @@ Describe 'Onboarding-Ausführung' {
         $result.Status | Should -Be 'Simulated'
         @($result.Steps | Where-Object Status -NE 'Simulated').Count | Should -Be 0
         Get-EobPlanCredential -Plan $result | Should -BeNullOrEmpty
+        $result.Runtime.ContainsKey('WelcomeDocumentPath') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $TestDrive 'reports/Welcome') | Should -BeFalse
     }
 
     It 'führt den Plan live aus und protokolliert das Kennwort nicht' {
@@ -366,6 +398,7 @@ Describe 'Onboarding-Ausführung' {
         $plain = ConvertTo-EobPlainText -SecureString $plan.Secrets['InitialPassword']
         $result = Invoke-EobOnboardingPlan -Plan $plan -Confirm:$false
         $result.Status | Should -Be 'Succeeded'
+        Test-Path -LiteralPath $result.Runtime['WelcomeDocumentPath'] -PathType Leaf | Should -BeTrue
         Should -Invoke -ModuleName $script:AdModule New-ADUser -Times 1 -ParameterFilter { $SamAccountName -eq 'mmustermann' -and $AccountPassword -is [securestring] }
         Should -Invoke -ModuleName $script:AdModule Add-ADGroupMember -Times 3
         (Get-EobPlanCredential -Plan $result) | Should -BeOfType [System.Security.SecureString]
@@ -523,6 +556,9 @@ Describe 'CSV-Massenverarbeitung' {
         $batch.Items[0].Plan.Subject.SamAccountName | Should -Be 'mmustermann'
         $batch.Items[1].Plan.Subject.SamAccountName | Should -Be 'mmustermann2'
         $batch.Items[1].State | Should -Be 'Warning'
+        foreach ($item in @($batch.Items | Where-Object State -NE 'Error')) {
+            @($item.Plan.Steps | Where-Object Action -EQ 'WelcomeDocument').Count | Should -Be 1
+        }
         $batch.Items[2].State | Should -Be 'Error'
         $batch.RequiresTypedConfirmation | Should -BeTrue
     }

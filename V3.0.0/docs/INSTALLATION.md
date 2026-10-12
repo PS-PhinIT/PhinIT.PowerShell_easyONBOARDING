@@ -31,8 +31,8 @@ powershell.exe -NoProfile -File .\Install-PS7_PDF.ps1 -CheckOnly
 # Oberfläche: Punkte auswählen und "Auswahl ausführen"
 powershell.exe -STA -NoProfile -File .\Install-PS7_PDF.ps1
 
-# ohne Oberfläche, z. B. per Softwareverteilung (als Administrator); -WhatIf simuliert
-powershell.exe -NoProfile -File .\Install-PS7_PDF.ps1 -Install PowerShell7, ActiveDirectory
+# ohne Oberfläche aus einer Administrator-PowerShell; -WhatIf simuliert
+& .\Install-PS7_PDF.ps1 -Install PowerShell7,ActiveDirectory
 ```
 
 * Installationen erfordern eine als Administrator gestartete PowerShell; das Skript erhöht sich nicht

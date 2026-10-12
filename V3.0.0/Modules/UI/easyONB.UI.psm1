@@ -13,7 +13,8 @@
       Fehler statt zu stillen Null-Verweisen. Ein statischer Test gleicht die im Code
       verwendeten Namen mit den XAML-Dateien ab.
     - Pläne werden per DispatcherTimer Schritt für Schritt ausgeführt (ADR-09); Abbrechen ist
-      zwischen zwei Schritten möglich.
+      zwischen zwei Schritten möglich. Ein laufender Schritt blockiert die Oberfläche bis
+      zu seinem Abschluss; der Timer führt ihn nicht in einem Hintergrundthread aus.
     - Kennwörter werden nur im Zugangsdatendialog angezeigt, danach aus dem Speicher entfernt.
     - Die Funktionen ändern ausschließlich den Zustand der Oberfläche. Systemverändernde Aktionen
       laufen über die Fachmodule (ShouldProcess) und werden vorher im Dialog bestätigt; daher gilt
@@ -447,6 +448,7 @@ function Get-EobOffboardingFormRequestData {
         AutoReplyMessage      = [string]$Values['AutoReplyMessage']
         Assets                = $assets
         AcknowledgePrivileged = [bool]$Values['AcknowledgePrivileged']
+        AuthorizedHomeAccessAccount = [string]$Values['AuthorizedHomeAccessAccount']
     }
 }
 
@@ -1419,7 +1421,8 @@ function Set-EobUiBusy {
 function Start-EobUiPlanExecution {
     <#
     .SYNOPSIS
-        Führt einen Plan Schritt für Schritt über einen DispatcherTimer aus (Oberfläche bleibt bedienbar).
+        Führt einen Plan Schritt für Schritt auf dem UI-Thread aus. Die Oberfläche reagiert
+        zwischen den Schritten; ein langsamer laufender Schritt blockiert sie bis zum Abschluss.
     .PARAMETER OnProgress
         Name einer Funktion (Plan, erledigt, gesamt, Schritt), die nach jedem Schritt aufgerufen wird.
     .PARAMETER OnComplete
@@ -1525,6 +1528,25 @@ function Get-EobOutcomeBanner {
         'Scheduled' { return [pscustomobject]@{ Kind = 'Info'; Text = "$Subject wurde geplant: Jetzt war keine Phase fällig, der Vorgang steht in der Warteschlange." } }
         default { return [pscustomobject]@{ Kind = 'Error'; Text = "$Subject ist fehlgeschlagen. Details siehe Tabelle und Bericht." } }
     }
+}
+
+function Export-EobUiPlanHandout {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][pscustomobject]$Plan, [switch]$Requested)
+
+    if (-not $Requested) { return '' }
+    try {
+        $directory = Get-EobReportDirectory -Config $script:Ui.Config -Kind 'Handouts'
+        $files = @(Export-EobPlanReport -Plan $Plan -Config $script:Ui.Config -Format Html, Pdf -Directory $directory -Confirm:$false)
+        $file = $files | Where-Object { $_.Format -eq 'Html' -and $_.Path } | Select-Object -First 1
+        if ($null -eq $file) { $file = $files | Where-Object Path | Select-Object -First 1 }
+        if ($null -ne $file) { return [string]$file.Path }
+    }
+    catch {
+        Write-EobLog -Level Warning -OperationId $Plan.OperationId -Action 'HandoutWritten' -Message "HandOut konnte nicht geschrieben werden: $($_.Exception.Message)"
+    }
+    return ''
 }
 
 #endregion
@@ -1647,7 +1669,8 @@ function Initialize-EobOnboardingView {
     $c.OnbProxyCheck.IsChecked = [bool]$defaults.SetProxyAddresses
     $c.OnbHomeDirCheck.IsChecked = [bool]$defaults.CreateHomeDirectory
     $c.OnbMailboxCheck.IsChecked = [bool]$defaults.CreateMailbox
-    $c.OnbWelcomeDocCheck.IsChecked = [bool]$defaults.CreateWelcomeDocument
+    $c.OnbWelcomeDocCheck.IsChecked = $true
+    $c.OnbWelcomeDocCheck.IsEnabled = $false
     $c.OnbWelcomeMailCheck.IsChecked = [bool]$defaults.SendWelcomeMail
     $c.OnbSyncCheck.IsChecked = [bool]$defaults.TriggerSync
     $c.OnbStartDatePicker.SelectedDate = (Get-Date).Date
@@ -1775,7 +1798,7 @@ function Get-EobOnboardingFormValue {
         SetProxyAddresses       = [bool]$c.OnbProxyCheck.IsChecked
         CreateHomeDirectory     = [bool]$c.OnbHomeDirCheck.IsChecked
         CreateMailbox           = [bool]$c.OnbMailboxCheck.IsChecked
-        CreateWelcomeDocument   = [bool]$c.OnbWelcomeDocCheck.IsChecked
+        CreateWelcomeDocument   = $true
         SendWelcomeMail         = [bool]$c.OnbWelcomeMailCheck.IsChecked
         TriggerSync             = [bool]$c.OnbSyncCheck.IsChecked
         Ticket                  = $c.OnbTicketText.Text
@@ -2063,7 +2086,8 @@ function Initialize-EobOffboardingView {
 
     $c = $script:Ui.C
     $config = $script:Ui.Config
-    $script:Ui.Offboarding = @{ Step = 1; User = $null; Plan = $null; FromQueue = $false; ReportPath = ''; SelectedPhases = @() }
+    $script:Ui.Offboarding = @{ Step = 1; User = $null; Plan = $null; FromQueue = $false; ReportPath = ''; SelectedPhases = @(); HandoutRequested = $false }
+    $c.OffHandoutCheck.IsChecked = $false
     $default = [string](Get-EobConfigValue -Config $config -Section 'Offboarding' -Key 'DefaultTemplate')
     Set-EobComboSource -Combo $c.OffTemplateCombo -SelectedValue $default -Items @(Get-EobOffboardingTemplate -Config $config | ForEach-Object {
             [pscustomobject]@{ Text = $_.DisplayName; Value = $_.Name; ToolTip = $_.Description }
@@ -2157,6 +2181,8 @@ function Select-EobOffboardingUser {
     $row = $c.OffSearchResultsGrid.SelectedItem
     if ($null -eq $row) { return }
     $script:Ui.Offboarding.User = $row.User
+    $script:Ui.Offboarding.HandoutRequested = $false
+    $c.OffHandoutCheck.IsChecked = $false
     $state = if ($row.User.Enabled) { 'aktiv' } else { 'deaktiviert' }
     $c.OffSelectedUserText.Text = "Ausgewählt: $($row.User.DisplayName) ($($row.User.SamAccountName)), Konto $state"
 }
@@ -2178,6 +2204,7 @@ function Get-EobOffboardingFormRequest {
         AutoReplyMessage      = $c.OffAutoReplyText.Text
         AssetsText            = $c.OffAssetsText.Text
         AcknowledgePrivileged = [bool]$c.OffAcknowledgePrivilegedCheck.IsChecked
+        AuthorizedHomeAccessAccount = $c.OffAuthorizedHomeAccessText.Text
     }
     return (ConvertTo-EobOffboardingRequest -InputObject (Get-EobOffboardingFormRequestData -Values $values) -Config $script:Ui.Config)
 }
@@ -2306,6 +2333,8 @@ function Invoke-EobOffboardingExecution {
         if (-not $answer.Confirmed) { return }
     }
     $state.SelectedPhases = $selected
+    $state.HandoutRequested = [bool]$c.OffHandoutCheck.IsChecked
+    $c.OffHandoutCheck.IsChecked = $false
     $c.OffProgressBar.Value = 0
     $c.OffResultBanner.Visibility = 'Collapsed'
     $c.OffOpenReportButton.Visibility = 'Collapsed'
@@ -2336,6 +2365,9 @@ function Complete-EobOffboardingExecution {
 
     $c = $script:Ui.C
     $state = $script:Ui.Offboarding
+    $handoutRequested = [bool]$state.HandoutRequested
+    $state.HandoutRequested = $false
+    $c.OffHandoutCheck.IsChecked = $false
     try {
         $null = Complete-EobOffboardingRun -Plan $Plan -SelectedPhase $state.SelectedPhases -Confirm:$false
     }
@@ -2346,10 +2378,11 @@ function Complete-EobOffboardingExecution {
     $c.OffProgressText.Text = "Abgeschlossen: $(Get-EobUiText -Map $script:StatusTexts -Key $Plan.Status)"
     Set-EobGridSource -Grid $c.OffResultStepsGrid -Items @($Plan.Steps | Where-Object { $_.Status -ne 'Planned' -or $_.Phase -in $state.SelectedPhases } | ForEach-Object { ConvertTo-EobUiStepRow -Step $_ })
     $state.ReportPath = Export-EobUiPlanReport -Plan $Plan
+    $handout = Export-EobUiPlanHandout -Plan $Plan -Requested:$handoutRequested
     $c.OffOpenReportButton.Visibility = if ($state.ReportPath) { 'Visible' } else { 'Collapsed' }
     $banner = Get-EobOutcomeBanner -Plan $Plan -Subject "Offboarding von $($Plan.Subject['SamAccountName'])"
-    $open = @('ExitDate', 'Retention' | Where-Object { $_ -notin $Plan.Offboarding.CompletedPhases -and $Plan.Offboarding.PhaseStepCount[$_] -gt 0 })
-    $text = $banner.Text
+    $open = @('Immediate', 'ExitDate', 'Retention' | Where-Object { $_ -notin $Plan.Offboarding.CompletedPhases -and $Plan.Offboarding.PhaseStepCount[$_] -gt 0 })
+    $text = $banner.Text + $(if ($handout) { " HandOut: $handout" })
     if (-not $Plan.Simulation -and $open.Count -gt 0) {
         $text += ' Offene Phasen (' + (($open | ForEach-Object { "$(Get-EobUiText -Map $script:PhaseTexts -Key $_) ab $(ConvertTo-EobUiDateText -Value $Plan.Offboarding.PhaseDates[$_])" }) -join ', ') + ') stehen in der Warteschlange.'
     }
@@ -2417,8 +2450,12 @@ function Invoke-EobOffboardingDeletion {
     }
     $warnings = @($plan.Findings | Where-Object Severity -EQ 'Warning' | ForEach-Object Message)
     if ($script:Ui.Simulation) {
+        $handoutRequested = [bool]$script:Ui.C.OffHandoutCheck.IsChecked
+        $script:Ui.C.OffHandoutCheck.IsChecked = $false
         $result = Invoke-EobOffboardingFinalDeletion -Plan $plan -WhatIf
-        $null = Show-EobDialog -Title 'Löschung simuliert' -Kind Info -Message "Simulation: Das Konto $($item.SamAccountName) würde endgültig gelöscht (Ergebnis: $(Get-EobUiText -Map $script:StatusTexts -Key $result.Status)). Für die tatsächliche Löschung in den Live-Modus wechseln." -Details $warnings
+        $script:Ui.C.OffHandoutCheck.IsChecked = $false
+        $handout = Export-EobUiPlanHandout -Plan $result -Requested:$handoutRequested
+        $null = Show-EobDialog -Title 'Löschung simuliert' -Kind Info -Message "Simulation: Das Konto $($item.SamAccountName) würde endgültig gelöscht (Ergebnis: $(Get-EobUiText -Map $script:StatusTexts -Key $result.Status)). Für die tatsächliche Löschung in den Live-Modus wechseln." -Details (@($warnings) + @($(if ($handout) { "HandOut: $handout" })))
         return
     }
     $confirmation = [string]$plan.Summary['Bestätigungstext']
@@ -2426,11 +2463,15 @@ function Invoke-EobOffboardingDeletion {
         -Message "Das Konto $($item.DisplayName) ($($item.SamAccountName)) wird endgültig aus dem Active Directory gelöscht. Vorher wird ein letzter Zustandsbericht gesichert." `
         -Details (@($warnings) + @($plan.Steps | ForEach-Object { @($_.Details) }))
     if (-not $answer.Confirmed) { return }
+    $handoutRequested = [bool]$script:Ui.C.OffHandoutCheck.IsChecked
+    $script:Ui.C.OffHandoutCheck.IsChecked = $false
     $result = Invoke-EobOffboardingFinalDeletion -Plan $plan -ConfirmationText $answer.Text -Confirm:$false
+    $script:Ui.C.OffHandoutCheck.IsChecked = $false
     $report = Export-EobUiPlanReport -Plan $result
+    $handout = Export-EobUiPlanHandout -Plan $result -Requested:$handoutRequested
     $banner = Get-EobOutcomeBanner -Plan $result -Subject "Löschung von $($item.SamAccountName)"
     $null = Show-EobDialog -Title 'Endgültige Löschung' -Kind $(if ($banner.Kind -eq 'Success') { 'Success' } elseif ($banner.Kind -eq 'Error') { 'Error' } else { 'Warning' }) `
-        -Message $banner.Text -Details (@($result.Steps | ForEach-Object { "$($_.Title): $(Get-EobUiText -Map $script:StatusTexts -Key $_.Status) $($_.Message)" }) + @($(if ($report) { "Bericht: $report" })))
+        -Message $banner.Text -Details (@($result.Steps | ForEach-Object { "$($_.Title): $(Get-EobUiText -Map $script:StatusTexts -Key $_.Status) $($_.Message)" }) + @($(if ($report) { "Bericht: $report" })) + @($(if ($handout) { "HandOut: $handout" })))
     Update-EobOffboardingQueue
 }
 
@@ -2471,7 +2512,8 @@ function Initialize-EobUserUpdateView {
     param()
 
     $c = $script:Ui.C
-    $script:Ui.Update = @{ User = $null; Plan = $null }
+    $script:Ui.Update = @{ User = $null; Plan = $null; HandoutRequested = $false }
+    $c.UpdHandoutCheck.IsChecked = $false
     $c.UpdSearchButton.Add_Click({ Invoke-EobUiSafely -Name 'Benutzersuche' -Busy -Action { Invoke-EobUserUpdateSearch } })
     $c.UpdSearchText.Add_KeyDown({
             param($source, $e)
@@ -2509,6 +2551,8 @@ function Select-EobUserUpdateUser {
     }
     $user = Get-EobAdUser -Identity $Identity
     $state.User = $user
+    $state.HandoutRequested = $false
+    $c.UpdHandoutCheck.IsChecked = $false
     if ($null -ne $state.Plan) { Clear-EobPlanSecret -Plan $state.Plan -Confirm:$false; $state.Plan = $null }
     $c.UpdSelectedUserText.Text = "Ausgewählt: $($user.DisplayName) ($($user.SamAccountName)) · $($user.UserPrincipalName)" + $(if (-not $user.Enabled) { ' · deaktiviert' } else { '' })
     $c.UpdEnableAccountCheck.IsChecked = $false
@@ -2590,6 +2634,8 @@ function Invoke-EobUserUpdateExecution {
             -Message "Für $($plan.Subject['SamAccountName']) werden $($plan.Steps.Count) Änderung(en) ausgeführt." -Details @($plan.Steps | ForEach-Object { $_.Title })
         if (-not $answer.Confirmed) { return }
     }
+    $script:Ui.Update.HandoutRequested = [bool]$c.UpdHandoutCheck.IsChecked
+    $c.UpdHandoutCheck.IsChecked = $false
     $c.UpdExecuteButton.IsEnabled = $false
     $c.UpdPreviewButton.IsEnabled = $false
     Start-EobUiPlanExecution -Plan $plan -OnProgress 'Update-EobUserUpdateProgress' -OnComplete 'Complete-EobUserUpdateExecution'
@@ -2610,10 +2656,14 @@ function Complete-EobUserUpdateExecution {
     param($Plan)
 
     $c = $script:Ui.C
+    $handoutRequested = [bool]$script:Ui.Update.HandoutRequested
+    $script:Ui.Update.HandoutRequested = $false
+    $c.UpdHandoutCheck.IsChecked = $false
     Set-EobGridSource -Grid $c.UpdPreviewStepsGrid -Items @($Plan.Steps | ForEach-Object { ConvertTo-EobUiStepRow -Step $_ })
     $report = Export-EobUiPlanReport -Plan $Plan
+    $handout = Export-EobUiPlanHandout -Plan $Plan -Requested:$handoutRequested
     $banner = Get-EobOutcomeBanner -Plan $Plan -Subject "Aktualisierung von $($Plan.Subject['SamAccountName'])"
-    Set-EobBanner -Border $c.UpdResultBanner -TextBlock $c.UpdResultText -Kind $banner.Kind -Text ($banner.Text + $(if ($report) { " Bericht: $report" }))
+    Set-EobBanner -Border $c.UpdResultBanner -TextBlock $c.UpdResultText -Kind $banner.Kind -Text ($banner.Text + $(if ($report) { " Bericht: $report" }) + $(if ($handout) { " HandOut: $handout" }))
     $c.UpdPreviewButton.IsEnabled = $true
     if (-not $Plan.Simulation) {
         $identity = [string]$Plan.Subject['ObjectGuid']
@@ -2634,6 +2684,8 @@ function Invoke-EobPasswordReset {
     $answer = Show-EobDialog -Title 'Kennwort zurücksetzen' -Kind Danger -ConfirmText '_Zurücksetzen' -CancelText 'Abbrechen' `
         -Message "Das Kennwort von $($user.DisplayName) ($($user.SamAccountName)) wird auf ein neues, sicheres Zufallskennwort gesetzt. Der Benutzer muss es bei der nächsten Anmeldung ändern. Das neue Kennwort wird einmalig angezeigt."
     if (-not $answer.Confirmed) { return }
+    $handoutRequested = [bool]$c.UpdHandoutCheck.IsChecked
+    $c.UpdHandoutCheck.IsChecked = $false
     $domainPolicy = $null
     try { $domainPolicy = Get-EobAdPasswordPolicy } catch { Write-EobLog -Level Warning -Action 'UI' -Message "Domänenrichtlinie nicht lesbar: $($_.Exception.Message)" }
     $plan = New-EobPasswordResetPlan -Identity ([string]$user.ObjectGuid) -Config $script:Ui.Config -DomainPasswordPolicy $domainPolicy -Simulation:$script:Ui.Simulation
@@ -2645,16 +2697,16 @@ function Invoke-EobPasswordReset {
         }
         $result = Invoke-EobPlan -Plan $plan -WhatIf:$plan.Simulation -Confirm:$false
         $null = Export-EobUiPlanReport -Plan $result
+        $handout = Export-EobUiPlanHandout -Plan $result -Requested:$handoutRequested
+        $banner = Get-EobOutcomeBanner -Plan $result -Subject "Kennwort-Reset für $($user.SamAccountName)"
+        Set-EobBanner -Border $c.UpdResultBanner -TextBlock $c.UpdResultText -Kind $banner.Kind -Text ($banner.Text + $(if ($handout) { " HandOut: $handout" }))
         $secure = Get-EobPlanCredential -Plan $result
         if ($null -ne $secure) {
             Show-EobCredentialDialog -DisplayName $user.DisplayName -SamAccountName $user.SamAccountName -UserPrincipalName $user.UserPrincipalName -Password $secure
         }
-        else {
-            $banner = Get-EobOutcomeBanner -Plan $result -Subject "Kennwort-Reset für $($user.SamAccountName)"
-            Set-EobBanner -Border $c.UpdResultBanner -TextBlock $c.UpdResultText -Kind $banner.Kind -Text $banner.Text
-        }
     }
     finally {
+        $c.UpdHandoutCheck.IsChecked = $false
         Clear-EobPlanSecret -Plan $plan -Confirm:$false
     }
 }
@@ -2695,6 +2747,7 @@ function Update-EobBulkMode {
     $state.Mode = if ($c.BulkModeOffboardingRadio.IsChecked) { 'Offboarding' } else { 'Onboarding' }
     Clear-EobUiBulkSecret
     $state.Batch = $null
+    $state.Rows = $null
     Set-EobGridSource -Grid $c.BulkItemsGrid -Items @()
     $c.BulkExecuteButton.IsEnabled = $false
     $c.BulkExportButton.IsEnabled = $false
@@ -2748,23 +2801,37 @@ function Import-EobBulkFile {
 
 function Update-EobBulkGrid {
     [CmdletBinding()]
-    param()
+    param([int]$Index = -1)
 
     $state = $script:Ui.Bulk
     if ($null -eq $state.Batch) { return }
-    $rows = foreach ($item in $state.Batch.Items) {
-        $outcome = [string](Get-EobPropertyValue -InputObject $item -Name 'Outcome' -Default '')
-        $name = if ($state.Mode -eq 'Onboarding') { "$($item.Request.GivenName) $($item.Request.Surname)".Trim() } else { [string]$item.Request.Identity }
-        [pscustomobject]@{
-            RowNumber    = $item.RowNumber
-            Name         = $name
-            Account      = [string](Get-EobPropertyValue -InputObject $item.Plan.Subject -Name 'SamAccountName' -Default '')
-            StateText    = Get-EobUiText -Map $script:StatusTexts -Key $item.State
-            OutcomeText  = if ($outcome) { Get-EobUiText -Map $script:StatusTexts -Key $outcome } else { '' }
-            MessagesText = (@($item.Messages) -join ' | ')
-        }
+    if ($Index -ge 0) {
+        # Der DispatcherTimer und alle Aufrufer laufen auf dem UI-Thread.
+        # Replace benachrichtigt WPF nur über die betroffene Zeile.
+        $state.Rows[$Index] = ConvertTo-EobBulkRow -Item $state.Batch.Items[$Index] -Mode $state.Mode
+        return
     }
-    Set-EobGridSource -Grid $script:Ui.C.BulkItemsGrid -Items @($rows)
+    $state.Rows = [System.Collections.ObjectModel.ObservableCollection[object]]::new()
+    foreach ($item in $state.Batch.Items) {
+        $state.Rows.Add((ConvertTo-EobBulkRow -Item $item -Mode $state.Mode))
+    }
+    $script:Ui.C.BulkItemsGrid.ItemsSource = $state.Rows
+}
+
+function ConvertTo-EobBulkRow {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][object]$Item, [Parameter(Mandatory)][string]$Mode)
+
+    $outcome = [string](Get-EobPropertyValue -InputObject $Item -Name 'Outcome' -Default '')
+    $name = if ($Mode -eq 'Onboarding') { "$($Item.Request.GivenName) $($Item.Request.Surname)".Trim() } else { [string]$Item.Request.Identity }
+    [pscustomobject]@{
+        RowNumber    = $Item.RowNumber
+        Name         = $name
+        Account      = [string](Get-EobPropertyValue -InputObject $Item.Plan.Subject -Name 'SamAccountName' -Default '')
+        StateText    = Get-EobUiText -Map $script:StatusTexts -Key $Item.State
+        OutcomeText  = if ($outcome) { Get-EobUiText -Map $script:StatusTexts -Key $outcome } else { '' }
+        MessagesText = (@($Item.Messages) -join ' | ')
+    }
 }
 
 function Start-EobBulkExecution {
@@ -2811,7 +2878,7 @@ function Invoke-EobBulkTick {
     $state.Timer.Stop()
     $failure = $null
     try {
-        $items = @($batch.Items)
+        $items = $batch.Items
         if ($state.Index -lt $items.Count -and -not $state.Cancel) {
             $item = $items[$state.Index]
             $state.Index++
@@ -2846,7 +2913,7 @@ function Invoke-EobBulkTick {
             }
             $c.BulkProgressBar.Value = [Math]::Round(100.0 * $state.Index / [Math]::Max(1, $items.Count))
             $c.BulkProgressText.Text = "Zeile $($state.Index) von $($items.Count) verarbeitet."
-            Update-EobBulkGrid
+            Update-EobBulkGrid -Index ($state.Index - 1)
             if ($state.Index -lt $items.Count -and -not $state.Cancel) { $state.Timer.Start(); return }
         }
     }
@@ -2874,13 +2941,16 @@ function Complete-EobBulkExecution {
     $c.BulkExportButton.IsEnabled = $true
     $c.BulkModeOnboardingRadio.IsEnabled = $true
     $c.BulkModeOffboardingRadio.IsEnabled = $true
-    foreach ($item in @($batch.Items)) {
-        if ($null -eq (Get-EobPropertyValue -InputObject $item -Name 'Outcome' -Default $null)) { Add-Member -InputObject $item -NotePropertyName 'Outcome' -NotePropertyValue 'NotExecuted' -Force }
+    for ($index = 0; $index -lt $batch.Items.Count; $index++) {
+        $item = $batch.Items[$index]
+        if ($null -eq (Get-EobPropertyValue -InputObject $item -Name 'Outcome' -Default $null)) {
+            Add-Member -InputObject $item -NotePropertyName 'Outcome' -NotePropertyValue 'NotExecuted' -Force
+            # Ein Anzeigefehler darf Protokoll und Behandlung der Zugangsdaten nicht verhindern.
+            try { Update-EobBulkGrid -Index $index } catch { Write-EobLog -Level Warning -Action 'UI' -Message "Ergebnistabelle konnte nicht aktualisiert werden: $($_.Exception.Message)" }
+        }
     }
     # Nicht ausgeführte Zeilen (Fehler, Abbruch) halten sonst ihre Kennwörter bis zum Programmende.
     Clear-EobUiBulkSecret
-    # Ein Anzeigefehler darf Protokoll und Behandlung der Zugangsdaten unten nicht verhindern.
-    try { Update-EobBulkGrid } catch { Write-EobLog -Level Warning -Action 'UI' -Message "Ergebnistabelle konnte nicht aktualisiert werden: $($_.Exception.Message)" }
     $failed = @($batch.Items | Where-Object { $_.Outcome -eq 'Failed' }).Count
     $level = if ($script:Ui.Simulation) { 'Information' } else { 'Audit' }
     Write-EobLog -Level $level -OperationId $batch.OperationId -Action "Bulk$($state.Mode)Completed" -Result $(if ($failed -gt 0) { 'Failed' } else { 'Succeeded' }) `
@@ -3219,6 +3289,8 @@ function Update-EobUiConfiguration {
         return
     }
     $script:Ui.Config = $config
+    $logging = Get-EobLoggingParameter -Config $config
+    $null = Initialize-EobLogging @logging -EnableQueue
     $null = Initialize-EobAdConnection -Config $config
     foreach ($name in @($script:Ui.Views.Keys)) {
         if ($name -ne $script:Ui.CurrentView) { $script:Ui.Views.Remove($name) }

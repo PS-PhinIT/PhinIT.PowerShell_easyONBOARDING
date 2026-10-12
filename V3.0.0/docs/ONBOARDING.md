@@ -15,7 +15,7 @@ Fehler werden direkt am Feld angezeigt; "Weiter" prüft den aktuellen Schritt.
 | 3 Konto | Vorschläge für Anmeldename, UPN und E-Mail (änderbar) mit Kollisionsprüfung |
 | 4 Organisation | Ziel-OU, Position, Abteilung, Führungskraft, Büro, Telefon, Mobil, Beschreibung |
 | 5 Gruppen und Lizenz | Lizenzgruppe, Teamleitung/Abteilungsleitung, weitere Gruppen |
-| 6 Optionen | Kennwort generieren oder manuell vergeben, Kennwortänderung bei Anmeldung, sofortige Aktivierung, Proxyadressen, Home-Verzeichnis, Postfach, Willkommensdokument, Welcome-Mail, Entra Connect Sync, Ticket, Bemerkung |
+| 6 Optionen | Kennwort generieren oder manuell vergeben, Kennwortänderung bei Anmeldung, sofortige Aktivierung, Proxyadressen, Home-Verzeichnis, Postfach, verpflichtendes Handout, optionale Welcome-Mail, Entra Connect Sync, Ticket, Bemerkung |
 | 7 Vorschau | Zusammenfassung, alle geplanten Schritte mit Risiko und Details, Prüfergebnisse |
 | 8 Ausführung | schrittweise Ausführung mit Fortschritt, Abbruch zwischen zwei Schritten, Ergebnis und Bericht |
 
@@ -75,8 +75,16 @@ beschreibt [SECURITY.md](../../SECURITY.md#sicherheitskonzept-version-3).
 
 ## Willkommensdokument und Welcome-Mail
 
-Das Willkommensdokument wird aus `[Report] TemplatePathHTML` erzeugt (Platzhalter:
-[ReportTemplates/README.md](../ReportTemplates/README.md)). Die Welcome-Mail
+Das **Onboarding-Handout (Willkommensdokument) wird immer erzeugt**, auch für externe
+Dienstleister und jede erfolgreich ausgeführte CSV-Zeile. Die Vorlage kommt aus
+`[Report] TemplatePathHTML` (Platzhalter:
+[ReportTemplates/README.md](../ReportTemplates/README.md)). Fehlt die Vorlage, ist Onboarding
+bereits in der Vorschau gesperrt. `CreateWelcomeDocument=0` und Anfrage-Opt-outs werden als
+Legacy-Einstellungen ignoriert. HTML entsteht unter `<ReportPath>/Welcome`, PDF zusätzlich,
+wenn `Formats` den Wert `Pdf` enthält. Ohne PDF-Engine bleibt das HTML-Handout erhalten.
+In der Simulation wird die Vorlage geprüft, aber **kein Handout geschrieben**.
+Ein Fehler beim Schreiben wird als fehlgeschlagener Planschritt angezeigt, nicht als Erfolg.
+Die Welcome-Mail
 (`[EmailSettings] SendWelcomeEmail=1`) geht an die neue E-Mail-Adresse des Kontos, optional in Kopie
 an `[EmailSettings] CopyAddress` (z. B. Personalabteilung). Beide enthalten **kein Kennwort**;
 Kennwort-Platzhalter werden durch den Hinweis ersetzt, dass das Kennwort separat und persönlich
@@ -84,10 +92,13 @@ Kennwort-Platzhalter werden durch den Hinweis ersetzt, dass das Kennwort separat
 
 ## Berichte
 
-Nach jeder Ausführung (auch in der Simulation) entsteht ein Vorgangsbericht in `[Report] ReportPath`
+Nach einer Einzelvorgangsausführung in der Oberfläche (auch in der Simulation) entsteht ein Vorgangsbericht in `[Report] ReportPath`
 (Formate nach `[Report] Formats`, Dateiname `<Zeitstempel>_<Konto>_<ID>`), dazu ein Eintrag im
 Audit-Log. Berichte enthalten die Schritte mit Status, Befunde und die Zusammenfassung, aber keine
 Kennwörter. Die Ansicht *Reports und Audit* listet Berichte und Audit-Einträge und exportiert sie.
+Bei API-Aufrufen lässt sich der technische Bericht mit `Export-EobPlanReport` exportieren;
+die Stapelansicht bietet einen ausdrücklichen Ergebnisexport. Das verpflichtende Handout
+ist unabhängig davon Bestandteil jedes Onboarding-Plans.
 
 ## Benutzer aktualisieren
 
@@ -97,6 +108,8 @@ Werte werden geschrieben. Deaktiviert angelegte Konten (`[ADUserDefaults] Accoun
 "Aktivierung bei Übergabe") werden hier mit *Konto aktivieren* freigeschaltet; liegt das Konto in der
 OU für ausgeschiedene Benutzer, warnt die Vorschau. Ein **Kennwort-Reset** ist eine eigene Aktion mit
 Bestätigung und einmaliger Anzeige des neuen Kennworts. Geschützte Konten lassen sich nicht bearbeiten.
+Ein zusätzliches HTML/PDF-Handout für Änderungen oder Kennwort-Reset wird nur bei aktivierter
+Handout-Auswahl erstellt, ohne Kennwort. Technischer Bericht und Audit bleiben automatisch.
 
 ## Massenverarbeitung (CSV)
 

@@ -5,7 +5,7 @@
 | Version | Unterstützt | Hinweis |
 |---|---|---|
 | 3.0.x (`V3.0.0`) | ja | aktuelle Version |
-| 1.x | nein | nicht mehr im Repository, bekannte kritische Mängel (siehe [docs/ANALYSIS.md](V3.0.0/docs/ANALYSIS.md)) |
+| 1.x | nein | nicht mehr im Repository; sicherheitsrelevante Unterschiede siehe [Migration](V3.0.0/docs/MIGRATION.md) |
 
 Für die Versionen 1.x werden keine Sicherheitskorrekturen mehr bereitgestellt. Bitte auf 3.0
 umsteigen ([docs/MIGRATION.md](V3.0.0/docs/MIGRATION.md)).
@@ -21,6 +21,14 @@ Hilfreich sind: betroffene Version, Schritte zur Reproduktion, erwartetes und ta
 Verhalten. Bitte keine echten Kennwörter, Tokens oder personenbezogenen Daten mitsenden.
 
 ## Sicherheitskonzept (Version 3)
+
+**Home-Zugriffe beim Offboarding.** Ein veränderbarer AD-HomeDirectory-/Manager-Eintrag ist
+keine ausreichende Autorisierung für Dateiserver-ACLs. Die Anwendung verlangt das explizit
+freigegebene Empfängerkonto und prüft die exakte Zuordnung `<AllowedRoot>/<SamAccountName>`.
+Freigabestämme, fremde Ordner und Reparse-Point-Vorfahren werden nicht berechtigt. Änderungen
+an Dateisystempfaden zwischen Prüfung und ACL-Schreibvorgang lassen sich damit nicht atomar
+ausschließen; Stammpfade und Benutzerordner müssen gegen unberechtigte Umbenennungen und
+Link-Erstellung geschützt bleiben.
 
 **Least Privilege.** easyONBOARDING benötigt weder lokale Administratorrechte noch Domain-Admin-Rechte.
 Das ausführende Konto erhält delegierte Rechte nur für die benötigten OUs und Gruppen

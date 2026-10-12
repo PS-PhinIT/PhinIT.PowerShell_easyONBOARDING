@@ -9,6 +9,8 @@
             <TextBlock Style="{StaticResource HeadingTextStyle}" Text="Offboarding" />
             <TextBlock Style="{StaticResource CaptionTextStyle}" Margin="0,0,0,8"
                        Text="Austritte in Phasen. Endgültige Löschung nie automatisch." />
+            <CheckBox x:Name="OffHandoutCheck" Content="HandOut für Offboarding / Löschung erzeugen (optional, ohne Kennwort)" IsChecked="False" Margin="0,0,0,8"
+                      ToolTip="Lesbares HTML/PDF zum Ergebnis; zusätzlich zum automatischen Audit und Bericht." />
         </StackPanel>
         <TabControl x:Name="OffTabs">
             <TabItem x:Name="OffWizardTab" Header="_Neuer Vorgang">
@@ -94,6 +96,9 @@
                                             <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Weiterleitung an (intern, optional)" />
                                             <TextBox x:Name="OffForwardToText" AutomationProperties.Name="Weiterleitung an" />
                                             <TextBlock x:Name="OffForwardError" Style="{StaticResource FieldErrorStyle}" />
+                                            <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Freigegebenes Konto für Home-Zugriff (sAMAccountName; nur bei gewünschtem Zugriff)" />
+                                            <TextBox x:Name="OffAuthorizedHomeAccessText" AutomationProperties.Name="Freigegebenes Konto für Home-Zugriff"
+                                                     ToolTip="Nur den freigegebenen sAMAccountName eintragen (z. B. chefin), ohne Domäne oder UPN. Die AD-Führungskraft ist keine automatische Freigabe." />
                                             <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Abwesenheitsnotiz (leer = Vorlage)" />
                                             <TextBox x:Name="OffAutoReplyText" AutomationProperties.Name="Abwesenheitsnotiz" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="52" MaxHeight="90" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" />
                                             <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Inventar zur Rückgabe (eine Zeile je Gerät)" />

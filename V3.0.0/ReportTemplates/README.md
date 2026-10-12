@@ -1,7 +1,9 @@
 # Berichtsvorlagen
 
 `HTMLTemplate.txt` (Deutsch) und `HTMLTemplateENG.txt` (Englisch) sind die Vorlagen des
-**Willkommensdokuments**, das beim Onboarding optional erzeugt wird (`[Report] CreateWelcomeDocument`).
+**Willkommensdokuments (Handout)**, das beim Onboarding immer erzeugt wird. Der Legacy-Schlüssel
+`[Report] CreateWelcomeDocument` wird ignoriert. Eine fehlende Vorlage sperrt den Onboarding-Plan;
+in der Simulation wird kein Handout geschrieben.
 Sie stammen aus Version 1.4.x und wurden für 3.0 bereinigt:
 
 * Kennwort-Platzhalter (`{{Passwort}}`, `{{CustomPW1..5}}`, `{{CompanyVPNPassword}}`) wurden entfernt.
