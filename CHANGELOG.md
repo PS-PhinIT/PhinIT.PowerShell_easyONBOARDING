@@ -8,9 +8,7 @@ Datei `VERSION` im Repository-Stamm.
 |---|---|---|
 | **3.0.x** | aktuell, unterstützt | `V3.0.0/` |
 
-## [3.0.2] - 2026-10-04
-
-### Audit-Korrekturen (2026-10-12)
+## [3.0.3] - 2026-10-12 Audit
 
 - Onboarding-Handout verpflichtend für Mitarbeitende, Externe und CSV-Zeilen; fehlende Vorlage
   sperrt den Plan. Legacy-Opt-out wird ignoriert; Simulation schreibt kein Handout.
@@ -24,6 +22,8 @@ Datei `VERSION` im Repository-Stamm.
   und abgelehnte Ausführungsrichtlinienänderung ohne blockierte Installationswarteschlange.
 - Defekte Dokumentationsverweise korrigiert; Architektur im bestehenden Beitragsleitfaden
   dokumentiert und weiterhin durch die Qualitätsprüfung vorgeschrieben.
+
+## [3.0.2] - 2026-10-04
 
 ### Hinzugefügt
 
