@@ -13,6 +13,10 @@ Neue Konfigurationen basieren auf der mitgelieferten Vorlage. Die Oberfläche bi
 Abschnitte, Suche, Beschreibungen und typgerechte Eingaben, etwa Schalter und Auswahllisten.
 Vor dem Speichern werden die Werte gegen das bestehende Schema und die fachlichen Regeln
 geprüft. Geheimnisse gehören auch hier nicht in die Datei.
+Der Editor bearbeitet nur die ausgewählte Datei, nicht die zusammengeführten Includes.
+Unternehmens- und Rollendateien bei Bedarf einzeln öffnen. Nach dem Speichern zusätzlich
+die vollständige Konfiguration in der Anwendung prüfen (`Start-easyONBOARDING.ps1 -CheckOnly`);
+der Editor prüft keine Erreichbarkeit von AD oder anderen Integrationen.
 
 Handout-Vorlagen mit `Start-easyONBOARDING.ReportEditor.ps1` gestalten und anschließend
 unter `[Report] TemplatePathHTML` auswählen. Für die Anwendung gelten weiterhin die
