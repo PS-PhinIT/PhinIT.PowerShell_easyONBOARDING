@@ -581,7 +581,7 @@ function ConvertTo-EobOnboardingRequest {
         SetProxyAddresses       = & $bool 'SetProxyAddresses' $true
         AdditionalProxyAddresses = @(& $list 'AdditionalProxyAddresses')
         SendWelcomeMail         = & $bool 'SendWelcomeMail' (Get-EobConfigValue -Config $Config -Section 'EmailSettings' -Key 'SendWelcomeEmail' -As Bool)
-        CreateWelcomeDocument   = & $bool 'CreateWelcomeDocument' (Get-EobConfigValue -Config $Config -Section 'Report' -Key 'CreateWelcomeDocument' -As Bool)
+        CreateWelcomeDocument   = $true
         CreateMailbox           = & $bool 'CreateMailbox' (Get-EobConfigValue -Config $Config -Section 'OnboardingExtensions' -Key 'CreateMailbox' -As Bool)
         TriggerSync             = & $bool 'TriggerSync' (Get-EobConfigValue -Config $Config -Section 'ADSync' -Key 'AutoSyncNewUsers' -As Bool)
         Ticket                  = & $text 'Ticket'
@@ -1114,18 +1114,19 @@ function New-EobOnboardingPlan {
         }
     }
 
-    if ($Request.CreateWelcomeDocument) {
-        $templatePath = Get-EobConfigValue -Config $Config -Section 'Report' -Key 'TemplatePathHTML' -As Path
-        if ($templatePath -and (Test-Path -LiteralPath $templatePath -PathType Leaf)) {
-            $null = Add-EobPlanStep -Plan $plan -Action 'WelcomeDocument' -Title 'Willkommensdokument erzeugen (ohne Kennwort)' -Target $sam -Handler 'New-EobWelcomeDocument' -DependsOn $create.Id -Parameters @{
-                SamAccountName = $sam; TemplatePath = $templatePath; OperationId = $plan.OperationId; Config = '@Config'
-                Values = @{
-                    Vorname = $Request.GivenName; Nachname = $Request.Surname; DisplayName = $proposal.DisplayName; LoginName = $sam
-                    UPN = $proposal.UserPrincipalName; MailAddress = $proposal.Mail; Position = $Request.Title; Abteilung = $Request.Department
-                    Buero = $Request.Office; Rufnummer = $Request.OfficePhone; Mobil = $Request.MobilePhone; Description = $Request.Description
-                    Ablaufdatum = if ($null -ne $Request.ExpirationDate) { $Request.ExpirationDate.ToString('dd.MM.yyyy') } else { '' }
-                    License = $Request.LicenseKey; CompanyId = $company.Id
-                }
+    $templatePath = Get-EobConfigValue -Config $Config -Section 'Report' -Key 'TemplatePathHTML' -As Path
+    if (-not $templatePath -or -not (Test-Path -LiteralPath $templatePath -PathType Leaf)) {
+        Add-EobPlanFinding -Plan $plan -Severity Error -Code 'ONB_HANDOUT_TEMPLATE_MISSING' -Field 'Report.TemplatePathHTML' -Message 'Die Vorlage für das verpflichtende Onboarding-Handout fehlt. Bitte vor der Ausführung eine gültige HTML-Vorlage konfigurieren.'
+    }
+    else {
+        $null = Add-EobPlanStep -Plan $plan -Action 'WelcomeDocument' -Title 'Onboarding-Handout erzeugen (ohne Kennwort)' -Target $sam -Handler 'New-EobWelcomeDocument' -DependsOn $create.Id -Parameters @{
+            SamAccountName = $sam; TemplatePath = $templatePath; OperationId = $plan.OperationId; Config = '@Config'
+            Values = @{
+                Vorname = $Request.GivenName; Nachname = $Request.Surname; DisplayName = $proposal.DisplayName; LoginName = $sam
+                UPN = $proposal.UserPrincipalName; MailAddress = $proposal.Mail; Position = $Request.Title; Abteilung = $Request.Department
+                Buero = $Request.Office; Rufnummer = $Request.OfficePhone; Mobil = $Request.MobilePhone; Description = $Request.Description
+                Ablaufdatum = if ($null -ne $Request.ExpirationDate) { $Request.ExpirationDate.ToString('dd.MM.yyyy') } else { '' }
+                License = $Request.LicenseKey; CompanyId = $company.Id
             }
         }
     }
@@ -1165,6 +1166,7 @@ function New-EobOnboardingPlan {
     $plan.Summary['Kennwort'] = if ($plan.Secrets['PasswordGenerated']) { "generiert ($($policy.Length) Zeichen), einmalige Anzeige nach Ausführung" } else { 'manuell vorgegeben' }
     $plan.Summary['Ablaufdatum'] = if ($null -ne $Request.ExpirationDate) { $Request.ExpirationDate.ToString('dd.MM.yyyy') } else { '' }
     $plan.Summary['Ticket'] = $Request.Ticket
+    $plan.Summary['Bemerkung'] = $Request.Notes
     return $plan
 }
 

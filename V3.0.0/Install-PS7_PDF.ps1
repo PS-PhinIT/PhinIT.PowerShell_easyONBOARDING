@@ -546,6 +546,13 @@ function Invoke-EobPrereqQueueStep {
     $ui.Timer.Start()
 }
 
+function Confirm-EobPrereqPolicyChange {
+    [CmdletBinding()]
+    param()
+
+    return [System.Windows.MessageBox]::Show($script:PrereqUi.Window, 'Die Ausführungsrichtlinie des aktuellen Benutzers wird auf RemoteSigned gesetzt. Fortfahren?', 'Ausführungsrichtlinie', 'YesNo', 'Question') -eq 'Yes'
+}
+
 function Start-EobPrereqSelection {
     [CmdletBinding()]
     param()
@@ -560,9 +567,9 @@ function Start-EobPrereqSelection {
     if ([bool]$ui.C.PrereqCopyCheck.IsChecked) { $selected.Add('Copy') }
     if ($selected.Count -eq 0) { Add-EobPrereqLog -Text 'Nichts ausgewählt.'; return }
     if ($selected.Contains('ExecutionPolicy') -and -not $ui.Headless) {
-        $answer = [System.Windows.MessageBox]::Show($ui.Window, 'Die Ausführungsrichtlinie des aktuellen Benutzers wird auf RemoteSigned gesetzt. Fortfahren?', 'Ausführungsrichtlinie', 'YesNo', 'Question')
-        if ($answer -ne 'Yes') { $null = $selected.Remove('ExecutionPolicy') }
+        if (-not (Confirm-EobPrereqPolicyChange)) { $null = $selected.Remove('ExecutionPolicy') }
     }
+    if ($selected.Count -eq 0) { Add-EobPrereqLog -Text 'Nichts ausgewählt.'; return }
     $ui.Queue = $selected
     $ui.Running = $true
     foreach ($name in @('PrereqInstallButton', 'PrereqRefreshButton')) { $ui.C[$name].IsEnabled = $false }

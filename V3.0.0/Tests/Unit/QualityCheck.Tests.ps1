@@ -72,6 +72,16 @@ Describe 'Qualitätsprüfung (Scripts/Invoke-EobQualityCheck.ps1)' {
         @(& $script:QualityScript -Root (New-QualityTestRoot) -Check 'Parser,Version' -PassThru).Count | Should -Be 0
     }
 
+    It 'verlangt Architektur als eigenes Dokument oder Abschnitt im Beitragsleitfaden' {
+        $root = New-QualityTestRoot
+        Write-QualityTestFile -Root $root -Path 'CONTRIBUTING.md' -Content "# Beiträge`n"
+        $findings = @(& $script:QualityScript -Root $root -Check Docs -PassThru)
+        @($findings | Where-Object Message -Match 'Pflichtdokument zur Architektur').Count | Should -Be 1
+        Write-QualityTestFile -Root $root -Path 'CONTRIBUTING.md' -Content "# Beiträge`n`n## Architektur`n`nModulgrenzen und Ausführung.`n"
+        $findings = @(& $script:QualityScript -Root $root -Check Docs -PassThru)
+        @($findings | Where-Object Message -Match 'Pflichtdokument zur Architektur').Count | Should -Be 0
+    }
+
     It 'das Repository besteht die statischen Prüfungen (ohne PSScriptAnalyzer)' {
         $findings = @(& $script:QualityScript -Root $script:AppRoot -Check Parser, Encoding, Xaml, Secrets, Docs, Version -PassThru)
         @($findings | ForEach-Object { "[$($_.Check)] $($_.File):$($_.Line) $($_.Message)" }) | Should -BeNullOrEmpty

@@ -10,6 +10,19 @@ Datei `VERSION` im Repository-Stamm.
 
 ## [3.0.2] - 2026-10-04
 
+### Audit-Korrekturen (2026-10-12)
+
+- Onboarding-Handout verpflichtend für Mitarbeitende, Externe und CSV-Zeilen; fehlende Vorlage
+  sperrt den Plan. Legacy-Opt-out wird ignoriert; Simulation schreibt kein Handout.
+- Andere Handouts nur auf ausdrückliche Auswahl, unabhängig von technischen Berichten und Audit.
+- Bemerkungen werden in den redigierten Onboarding-Vorgangsbericht übernommen.
+- Offboarding: Home-Zugriffe enger begrenzt, Lizenzentzug an erfolgreiche Postfachumwandlung
+  gekoppelt und unvollständige Phasen für Wiederholung in der Warteschlange gehalten.
+- Oberfläche und Installer: Protokollierung beim Neuladen aktualisiert, Stapelanzeige effizienter
+  und abgelehnte Ausführungsrichtlinienänderung ohne blockierte Installationswarteschlange.
+- Defekte Dokumentationsverweise korrigiert; Architektur im bestehenden Beitragsleitfaden
+  dokumentiert und weiterhin durch die Qualitätsprüfung vorgeschrieben.
+
 ### Hinzugefügt
 
 - `Install-PS7_PDF.ps1` vollständig neu geschrieben, mit WPF-Oberfläche
@@ -113,7 +126,9 @@ Datei `VERSION` im Repository-Stamm.
 
 Vollständige Neuentwicklung im Ordner `V3.0.0`. Die Versionen 1.3.10 und 1.4.x lagen zu diesem
 Zeitpunkt unverändert in `V1.3.10` bzw. `V1.4.XX` (entfernt mit 3.0.2). Die Befund-IDs (C-xx, H-xx,
-M-xx, F-xx) beziehen sich auf die Bestandsaufnahme in [ANALYSIS.md](V3.0.0/docs/ANALYSIS.md).
+M-xx, F-xx) beziehen sich auf die damalige Bestandsaufnahme, die nicht mehr im Repository enthalten
+ist. Die sicherheitsrelevanten Änderungen am Altstand sind in der
+[Migration](V3.0.0/docs/MIGRATION.md) zusammengefasst.
 
 ### Hinzugefügt
 

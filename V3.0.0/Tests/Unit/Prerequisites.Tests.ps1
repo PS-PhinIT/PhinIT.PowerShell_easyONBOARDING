@@ -51,6 +51,46 @@ Describe 'Skript Install-PS7_PDF.ps1' {
     }
 }
 
+Describe 'Auswahl der Voraussetzungen' {
+    BeforeEach {
+        $timer = [pscustomobject]@{ Started = $false }
+        $timer | Add-Member -MemberType ScriptMethod -Name Start -Value { $this.Started = $true }
+        $script:PrereqUi = @{
+            Running = $false; Headless = $false; Queue = $null; Timer = $timer
+            Items = @([pscustomobject]@{ Id = 'ExecutionPolicy' })
+            Checks = @{ ExecutionPolicy = [pscustomobject]@{ IsChecked = $true } }
+            C = @{
+                PrereqCopyCheck = [pscustomobject]@{ IsChecked = $false }
+                PrereqInstallButton = [pscustomobject]@{ IsEnabled = $true }
+                PrereqRefreshButton = [pscustomobject]@{ IsEnabled = $true }
+                PrereqProgressText = [pscustomobject]@{ Text = '' }
+            }
+        }
+        Mock Confirm-EobPrereqPolicyChange { $false }
+        Mock Add-EobPrereqLog {}
+    }
+
+    AfterEach { $script:PrereqUi = $null }
+
+    It 'startet nach abgelehnter Richtlinienänderung keine leere Warteschlange' {
+        { Start-EobPrereqSelection } | Should -Not -Throw
+        $script:PrereqUi.Running | Should -BeFalse
+        $script:PrereqUi.Timer.Started | Should -BeFalse
+        $script:PrereqUi.C.PrereqInstallButton.IsEnabled | Should -BeTrue
+        $script:PrereqUi.C.PrereqRefreshButton.IsEnabled | Should -BeTrue
+        Should -Invoke Add-EobPrereqLog -Times 1 -Exactly -ParameterFilter { $Text -eq 'Nichts ausgewählt.' }
+    }
+
+    It 'behält andere Aktionen nach abgelehnter Richtlinienänderung bei' {
+        $script:PrereqUi.C.PrereqCopyCheck.IsChecked = $true
+        Start-EobPrereqSelection
+        $script:PrereqUi.Queue.ToArray() | Should -Be @('Copy')
+        $script:PrereqUi.Running | Should -BeTrue
+        $script:PrereqUi.Timer.Started | Should -BeTrue
+        $script:PrereqUi.C.PrereqProgressText.Text | Should -Match 'Copy'
+    }
+}
+
 Describe 'Prüfung der Voraussetzungen' {
     It 'meldet ein fehlendes PowerShell 7 als Pflicht und installierbar' {
         Set-EobPrereqTestEnvironment -PowerShell $null

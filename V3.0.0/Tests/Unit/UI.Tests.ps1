@@ -67,6 +67,25 @@ Describe 'XAML-Dateien' {
 }
 
 Describe 'Abgleich Code und XAML' {
+    It 'zeigt das verpflichtende Willkommens-HandOut ausgewählt und gesperrt' {
+        [xml]$view = Get-Content -LiteralPath (Join-Path $script:GuiRoot 'Views/OnboardingView.xaml') -Raw
+        $check = $view.SelectSingleNode('//*[@*[local-name()="Name"]="OnbWelcomeDocCheck"]')
+        $check.IsChecked | Should -Be 'True'
+        $check.IsEnabled | Should -Be 'False'
+    }
+
+    It 'bietet zusätzliche HandOuts nur optional und nicht vorausgewählt an' {
+        foreach ($entry in @(
+                @{ File = 'Views/OffboardingView.xaml'; Control = 'OffHandoutCheck' }
+                @{ File = 'Views/UserUpdateView.xaml'; Control = 'UpdHandoutCheck' }
+            )) {
+            [xml]$view = Get-Content -LiteralPath (Join-Path $script:GuiRoot $entry.File) -Raw
+            $check = $view.SelectSingleNode('//*[@*[local-name()="Name"]="' + $entry.Control + '"]')
+            $check.IsChecked | Should -Be 'False'
+            $check.IsEnabled | Should -Not -Be 'False'
+        }
+    }
+
     It 'verwendet im Code nur vorhandene Steuerelemente' {
         $referenced = [System.Collections.Generic.HashSet[string]]::new()
         foreach ($pattern in @('\$c\.([A-Z][A-Za-z0-9]+)', '\$script:Ui\.C\.([A-Z][A-Za-z0-9]+)')) {
@@ -202,6 +221,72 @@ Describe 'Hilfsfunktionen der Oberfläche' {
         }
     }
 
+    It 'übernimmt beim Neuladen die Protokollparameter und aktiviert die Warteschlange' {
+        InModuleScope 'easyONB.UI' {
+            $script:Ui = New-EobUiState
+            $script:Ui.ConfigPath = 'reload.ini'
+            $script:ReloadConfig = [pscustomobject]@{ Findings = @(); Path = 'reload.ini' }
+            Mock Import-EobConfiguration { $script:ReloadConfig }
+            Mock Get-EobLoggingParameter { @{ Directory = 'new-logs'; MinimumLevel = 'Warning'; RetentionDays = 14; MaxFileSizeMB = 7 } }
+            Mock Initialize-EobLogging {}
+            Mock Initialize-EobAdConnection {}
+            Mock Update-EobStatusBar {}
+            Mock Update-EobSettingsView {}
+            Mock Write-EobLog {}
+
+            Update-EobUiConfiguration
+
+            $script:Ui.Config | Should -Be $script:ReloadConfig
+            Should -Invoke Get-EobLoggingParameter -Times 1 -Exactly -ParameterFilter { $Config -eq $script:ReloadConfig }
+            Should -Invoke Initialize-EobLogging -Times 1 -Exactly -ParameterFilter {
+                $Directory -eq 'new-logs' -and $MinimumLevel -eq 'Warning' -and $RetentionDays -eq 14 -and $MaxFileSizeMB -eq 7 -and $EnableQueue
+            }
+        }
+    }
+
+    It 'aktualisiert nur die betroffene Stapelzeile ohne die gebundene Sammlung neu aufzubauen' {
+        InModuleScope 'easyONB.UI' {
+            $script:Ui = New-EobUiState
+            $grid = [pscustomobject]@{ ItemsSource = $null }
+            $items = @(foreach ($index in 1..3) {
+                    [pscustomobject]@{
+                        RowNumber = $index; Request = [pscustomobject]@{ GivenName = 'Test'; Surname = "User$index" }
+                        Plan = [pscustomobject]@{ Subject = @{ SamAccountName = "user$index" } }
+                        State = 'Ready'; Outcome = ''; Messages = @()
+                    }
+                })
+            $script:Ui.C = @{ BulkItemsGrid = $grid }
+            $script:Ui.Bulk = @{ Mode = 'Onboarding'; Batch = [pscustomobject]@{ Items = $items } }
+            Update-EobBulkGrid
+            $rows = $grid.ItemsSource
+            $first = $rows[0]
+            $last = $rows[2]
+            $change = @{ Count = 0; Action = ''; Index = -1 }
+            $rows.add_CollectionChanged([System.Collections.Specialized.NotifyCollectionChangedEventHandler]({
+                        param($sourceCollection, $changeArgs)
+                        $sourceCollection | Should -Not -BeNullOrEmpty
+                        $change.Count++
+                        $change.Action = [string]$changeArgs.Action
+                        $change.Index = $changeArgs.NewStartingIndex
+                    }.GetNewClosure()))
+            Mock ConvertTo-EobBulkRow -MockWith { [pscustomobject]@{ OutcomeText = $Item.Outcome; MessagesText = $Item.Messages -join ' | ' } }
+            $items[1].Outcome = 'Failed'
+            $items[1].Messages = @('Fehler')
+
+            Update-EobBulkGrid -Index 1
+
+            [object]::ReferenceEquals($grid.ItemsSource, $rows) | Should -BeTrue
+            [object]::ReferenceEquals($rows[0], $first) | Should -BeTrue
+            [object]::ReferenceEquals($rows[2], $last) | Should -BeTrue
+            $rows[1].OutcomeText | Should -Be 'Failed'
+            $rows[1].MessagesText | Should -Be 'Fehler'
+            $change.Count | Should -Be 1
+            $change.Action | Should -Be 'Replace'
+            $change.Index | Should -Be 1
+            Should -Invoke ConvertTo-EobBulkRow -Times 1 -Exactly -ParameterFilter { $Item.RowNumber -eq 2 }
+        }
+    }
+
     It 'filtert das Audit-Log ohne Platzhaltersyntax' {
         $null = Initialize-EobLogging -Directory (Join-Path $TestDrive 'logs-auditfilter')
         Write-EobLog -Level Audit -Action 'Test' -Target 'konto[1]' -Message 'Filtertest'
@@ -259,10 +344,40 @@ Describe 'Hilfsfunktionen der Oberfläche' {
 
     It 'übersetzt das Offboarding-Formular' {
         InModuleScope 'easyONB.UI' {
-            $data = Get-EobOffboardingFormRequestData -Values @{ Identity = 'guid'; Template = 'Standard'; ExitDate = [datetime]'2027-03-31'; AssetsText = "Notebook 123`r`n`r`nHandy 456 "; AcknowledgePrivileged = $true }
+            $data = Get-EobOffboardingFormRequestData -Values @{ Identity = 'guid'; Template = 'Standard'; ExitDate = [datetime]'2027-03-31'; AssetsText = "Notebook 123`r`n`r`nHandy 456 "; AcknowledgePrivileged = $true; AuthorizedHomeAccessAccount = 'chefin' }
             $data['ExitDate'] | Should -Be '2027-03-31'
             $data['Assets'] | Should -Be @('Notebook 123', 'Handy 456')
             $data['AcknowledgePrivileged'] | Should -BeTrue
+            $data['AuthorizedHomeAccessAccount'] | Should -Be 'chefin'
+            (Get-EobOffboardingFormRequestData -Values @{ Identity = 'guid' })['AuthorizedHomeAccessAccount'] | Should -Be ''
+        }
+    }
+
+    It 'übergibt ausschließlich das ausdrücklich eingetragene Home-Zugriffskonto "<Account>"' -ForEach @(
+        @{ Account = '' }
+        @{ Account = 'chefin' }
+    ) {
+        InModuleScope 'easyONB.UI' -Parameters @{ Account = $Account } {
+            param($Account)
+            $script:Ui = New-EobUiState
+            $script:Ui.Offboarding = @{ User = [pscustomobject]@{ ObjectGuid = [guid]::Empty; Manager = 'nicht-freigegebene-ad-fuehrungskraft' } }
+            $script:Ui.C = @{
+                OffTemplateCombo = [pscustomobject]@{}
+                OffExitDatePicker = [pscustomobject]@{ SelectedDate = [datetime]'2027-03-31' }
+                OffAcknowledgePrivilegedCheck = [pscustomobject]@{ IsChecked = $false }
+                OffAuthorizedHomeAccessText = [pscustomobject]@{ Text = $Account }
+            }
+            foreach ($name in 'OffTicketText', 'OffReasonText', 'OffNotesText', 'OffForwardToText', 'OffAutoReplyText', 'OffAssetsText') {
+                $script:Ui.C[$name] = [pscustomobject]@{ Text = '' }
+            }
+            Mock Get-EobComboValue { 'Standard' }
+            Mock ConvertTo-EobOffboardingRequest { [pscustomobject]$InputObject }
+            $request = Get-EobOffboardingFormRequest
+            $request.AuthorizedHomeAccessAccount | Should -Be $Account
+            $script:Ui.C.OffAuthorizedHomeAccessText.Text | Should -Be $Account
+            Should -Invoke ConvertTo-EobOffboardingRequest -Times 1 -Exactly -ParameterFilter {
+                $InputObject.AuthorizedHomeAccessAccount -eq $script:Ui.C.OffAuthorizedHomeAccessText.Text
+            }
         }
     }
 
@@ -294,6 +409,190 @@ Describe 'Hilfsfunktionen der Oberfläche' {
             ConvertTo-EobUiDateText -Value '' | Should -Be ''
             ConvertTo-EobUiDateText -Value $null | Should -Be ''
             ConvertTo-EobUiDateText -Value '2027-01-04T13:05:00.0000000+00:00' -WithTime | Should -Match '^04\.01\.2027 \d\d:05$'
+        }
+    }
+}
+
+Describe 'Offene Offboarding-Phasen der Oberfläche' {
+    It 'zeigt die Sofortphase nur mit verbleibenden Aktionen: <Case>' -ForEach @(
+        @{ Case = 'fehlgeschlagen'; Completed = @(); ActionCount = 1; Expected = $true }
+        @{ Case = 'abgeschlossen'; Completed = @('Immediate'); ActionCount = 1; Expected = $false }
+        @{ Case = 'ohne Aktionen'; Completed = @(); ActionCount = 0; Expected = $false }
+    ) {
+        InModuleScope 'easyONB.UI' -Parameters @{ Completed = $Completed; ActionCount = $ActionCount; Expected = $Expected } {
+            param($Completed, $ActionCount, $Expected)
+            $script:Ui = New-EobUiState
+            $script:Ui.Offboarding = @{ SelectedPhases = @('Immediate'); ReportPath = ''; HandoutRequested = $false }
+            $script:Ui.C = @{
+                OffHandoutCheck = [pscustomobject]@{ IsChecked = $false }
+                OffProgressBar = [pscustomobject]@{ Value = 0 }
+                OffProgressText = [pscustomobject]@{ Text = '' }
+                OffResultStepsGrid = [pscustomobject]@{ ItemsSource = $null }
+                OffOpenReportButton = [pscustomobject]@{ Visibility = '' }
+                OffResultBanner = [pscustomobject]@{}
+                OffResultText = [pscustomobject]@{ Text = '' }
+            }
+            $plan = [pscustomobject]@{
+                OperationId = 'immediate-retry'; Status = 'Failed'; Simulation = $false; Steps = @()
+                Subject = @{ SamAccountName = 'test' }
+                Offboarding = @{
+                    CompletedPhases = $Completed
+                    PhaseStepCount = @{ Immediate = $ActionCount; ExitDate = 0; Retention = 0 }
+                    PhaseDates = @{ Immediate = [datetime]'2027-03-31' }
+                }
+            }
+            Mock Complete-EobOffboardingRun {}
+            Mock Clear-EobPlanSecret {}
+            Mock Export-EobUiPlanReport { '' }
+            Mock Set-EobOffboardingStep {}
+            Mock Update-EobOffboardingQueue {}
+            Mock Set-EobBanner { $script:OffCompletionText = $Text }
+
+            Complete-EobOffboardingExecution -Plan $plan
+
+            ($script:OffCompletionText -match 'Offene Phasen \(Sofort ab') | Should -Be $Expected
+        }
+    }
+}
+
+Describe 'Optionale HandOuts der Oberfläche' {
+    It 'schreibt ohne ausdrücklichen Wunsch keine zusätzlichen Dateien' {
+        InModuleScope 'easyONB.UI' {
+            $script:Ui = New-EobUiState
+            Mock Get-EobReportDirectory { 'handouts' }
+            Mock Export-EobPlanReport {}
+            Export-EobUiPlanHandout -Plan ([pscustomobject]@{ OperationId = 'no-handout' }) | Should -Be ''
+            Should -Invoke Get-EobReportDirectory -Times 0 -Exactly
+            Should -Invoke Export-EobPlanReport -Times 0 -Exactly
+        }
+    }
+
+    It 'exportiert <Status> unverändert als HTML/PDF in den HandOut-Unterordner' -ForEach @(
+        @{ Status = 'Simulated'; Simulation = $true }
+        @{ Status = 'Failed'; Simulation = $false }
+    ) {
+        InModuleScope 'easyONB.UI' -Parameters @{ Status = $Status; Simulation = $Simulation } {
+            param($Status, $Simulation)
+            $script:Ui = New-EobUiState
+            $script:HandoutPlan = [pscustomobject]@{ OperationId = 'handout-result'; Status = $Status; Simulation = $Simulation }
+            Mock Get-EobReportDirectory { 'handouts' }
+            Mock Export-EobPlanReport {
+                [pscustomobject]@{ Format = 'Html'; Path = 'handouts/result.html' }
+                [pscustomobject]@{ Format = 'Pdf'; Path = 'handouts/result.pdf' }
+            }
+
+            Export-EobUiPlanHandout -Plan $script:HandoutPlan -Requested | Should -Be 'handouts/result.html'
+
+            Should -Invoke Get-EobReportDirectory -Times 1 -Exactly -ParameterFilter { $Kind -eq 'Handouts' }
+            Should -Invoke Export-EobPlanReport -Times 1 -Exactly -ParameterFilter {
+                [object]::ReferenceEquals($Plan, $script:HandoutPlan) -and $Directory -eq 'handouts' -and
+                ($Format -join ',') -eq 'Html,Pdf'
+            }
+            $script:HandoutPlan.Status | Should -Be $Status
+            $script:HandoutPlan.Simulation | Should -Be $Simulation
+        }
+    }
+
+    It 'behandelt einen HandOut-Exportfehler ohne das Vorgangsergebnis zu ändern' {
+        InModuleScope 'easyONB.UI' {
+            $script:Ui = New-EobUiState
+            $plan = [pscustomobject]@{ OperationId = 'failed-export'; Status = 'Succeeded' }
+            Mock Get-EobReportDirectory { 'handouts' }
+            Mock Export-EobPlanReport { throw 'Datei gesperrt' }
+            Mock Write-EobLog {}
+            Export-EobUiPlanHandout -Plan $plan -Requested | Should -Be ''
+            $plan.Status | Should -Be 'Succeeded'
+            Should -Invoke Write-EobLog -Times 1 -Exactly -ParameterFilter { $Action -eq 'HandoutWritten' -and $Level -eq 'Warning' }
+        }
+    }
+
+    It 'übergibt für <Action> den ausdrücklichen HandOut-Wunsch <Requested> erst mit dem Ergebnis' -ForEach @(
+        foreach ($action in 'Offboarding', 'Update', 'PasswordReset', 'DeletionSimulation', 'DeletionLive') {
+            foreach ($requested in $false, $true) { @{ Action = $action; Requested = $requested } }
+        }
+    ) {
+        InModuleScope 'easyONB.UI' -Parameters @{ Action = $Action; Requested = $Requested } {
+            param($Action, $Requested)
+            $script:Ui = New-EobUiState
+            $script:Ui.Simulation = $Action -ne 'DeletionLive'
+            $script:HandoutPlan = [pscustomobject]@{
+                OperationId = 'completed-result'; Status = 'Failed'; Simulation = $true; Findings = @(); Steps = @()
+                Subject = @{ SamAccountName = 'test' }
+                Summary = @{ Bestätigungstext = 'LÖSCHEN test' }
+                Offboarding = @{ CompletedPhases = @(); PhaseStepCount = @{ ExitDate = 1; Retention = 0 } }
+            }
+            $script:RequestedHandout = $Requested
+            $script:Ui.Offboarding = @{ SelectedPhases = @(); ReportPath = ''; HandoutRequested = $false; Plan = $script:HandoutPlan }
+            $script:Ui.Update = @{ User = [pscustomobject]@{ ObjectGuid = [guid]::Empty; DisplayName = 'Test'; SamAccountName = 'test' }; HandoutRequested = $false; Plan = $script:HandoutPlan }
+            $script:Ui.C = @{
+                OffHandoutCheck = [pscustomobject]@{ IsChecked = $Requested }
+                UpdHandoutCheck = [pscustomobject]@{ IsChecked = $Requested }
+                OffProgressBar = [pscustomobject]@{ Value = 0 }
+                OffProgressText = [pscustomobject]@{ Text = '' }
+                OffResultStepsGrid = [pscustomobject]@{ ItemsSource = $null }
+                OffOpenReportButton = [pscustomobject]@{ Visibility = '' }
+                OffResultBanner = [pscustomobject]@{ Visibility = '' }
+                OffResultText = [pscustomobject]@{ Text = '' }
+                UpdPreviewStepsGrid = [pscustomobject]@{ ItemsSource = $null }
+                UpdResultBanner = [pscustomobject]@{}
+                UpdResultText = [pscustomobject]@{ Text = '' }
+                UpdPreviewButton = [pscustomobject]@{ IsEnabled = $false }
+                UpdExecuteButton = [pscustomobject]@{ IsEnabled = $true }
+            }
+            Mock Export-EobUiPlanReport { '' }
+            Mock Get-EobReportDirectory { 'handouts' }
+            Mock Export-EobPlanReport { [pscustomobject]@{ Format = 'Html'; Path = 'handouts/result.html' } }
+            Mock Complete-EobOffboardingRun {}
+            Mock Clear-EobPlanSecret {}
+            Mock Set-EobBanner {}
+            Mock Set-EobOffboardingStep {}
+            Mock Update-EobOffboardingQueue {}
+            Mock Test-EobPlanExecutable { $true }
+            Mock Select-EobOffboardingPhase { 'ExitDate' }
+            Mock Get-EobOffboardingIncludePhase { 'ExitDate' }
+            Mock Start-EobUiPlanExecution {
+                $script:Ui.C.OffHandoutCheck.IsChecked = -not $script:RequestedHandout
+                $script:Ui.C.UpdHandoutCheck.IsChecked = -not $script:RequestedHandout
+                & $OnComplete -Plan $Plan
+            }
+            Mock Show-EobDialog { [pscustomobject]@{ Confirmed = $true; Text = 'LÖSCHEN test' } }
+            Mock Get-EobAdPasswordPolicy { $null }
+            Mock New-EobPasswordResetPlan { $script:HandoutPlan }
+            Mock Invoke-EobPlan {
+                $script:Ui.C.UpdHandoutCheck.IsChecked = -not $script:RequestedHandout
+                $script:HandoutPlan
+            }
+            Mock Get-EobPlanCredential { $null }
+            Mock Get-EobSelectedQueueItem { [pscustomobject]@{ OperationId = 'completed-result'; DisplayName = 'Test'; SamAccountName = 'test' } }
+            Mock New-EobOffboardingDeletionPlan { $script:HandoutPlan }
+            Mock Invoke-EobOffboardingFinalDeletion {
+                $script:Ui.C.OffHandoutCheck.IsChecked = -not $script:RequestedHandout
+                $script:HandoutPlan
+            }
+
+            switch ($Action) {
+                'Offboarding' {
+                    Invoke-EobOffboardingExecution
+                    Complete-EobOffboardingExecution -Plan $script:HandoutPlan
+                    $script:Ui.C.OffHandoutCheck.IsChecked | Should -BeFalse
+                }
+                'Update' {
+                    Invoke-EobUserUpdateExecution
+                    Complete-EobUserUpdateExecution -Plan $script:HandoutPlan
+                    $script:Ui.C.UpdHandoutCheck.IsChecked | Should -BeFalse
+                }
+                'PasswordReset' { Invoke-EobPasswordReset }
+                default { Invoke-EobOffboardingDeletion }
+            }
+
+            $handoutCount = if ($Requested) { 1 } else { 0 }
+            Should -Invoke Export-EobPlanReport -Times $handoutCount -Exactly -ParameterFilter {
+                [object]::ReferenceEquals($Plan, $script:HandoutPlan) -and $Directory -eq 'handouts' -and ($Format -join ',') -eq 'Html,Pdf'
+            }
+            $reportCount = if ($Action -eq 'DeletionSimulation') { 0 } elseif ($Action -in 'Offboarding', 'Update') { 2 } else { 1 }
+            Should -Invoke Export-EobUiPlanReport -Times $reportCount -Exactly
+            if ($Action -eq 'PasswordReset') { $script:Ui.C.UpdHandoutCheck.IsChecked | Should -BeFalse }
+            if ($Action -like 'Deletion*') { $script:Ui.C.OffHandoutCheck.IsChecked | Should -BeFalse }
         }
     }
 }

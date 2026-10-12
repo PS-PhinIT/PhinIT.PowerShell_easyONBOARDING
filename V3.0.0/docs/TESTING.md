@@ -33,18 +33,22 @@ pwsh -NoProfile -Command "Invoke-Pester -Path ./Tests/Unit, ./Tests/Integration 
 auslösen. Alle Dateien entstehen im Pester-`TestDrive`. Kennwörter in Tests sind künstliche Werte
 und werden über `New-EobTestSecureString` erzeugt.
 
-## CI
+## CI und Prüfgrenzen
 
-`.github/workflows/v3-ci.yml` (Repository-Stamm) läuft bei Änderungen an `V3.0.0/**`:
+Im aktuellen Repository-Stand ist kein CI-Workflow enthalten. Die oben genannten lokalen
+Prüfungen sind die verfügbare automatisierte Qualitätssicherung. Tests mit Mocks ersetzen
+keine Prüfung gegen eine Testdomäne, Exchange, Graph oder Entra Connect.
 
-* **Statische Prüfungen** (Ubuntu): Parser, Kodierung, XAML, PSScriptAnalyzer 1.24.0, Secret- und
-  Platzhalter-Scan, Dokumentation und Versionsangaben.
-* **Pester** (Windows und Ubuntu): alle Unit- und Integrationstests, unter Windows mit WPF und Edge;
-  anschließend `Start-easyONBOARDING.ps1 -CheckOnly` mit der Beispielkonfiguration. Testergebnisse
-  werden als Artefakt (NUnit-XML) abgelegt.
+Der Audit vom 12.10.2026 ergänzt Regressionstests für verpflichtende Onboarding-Handouts,
+fehlende Vorlagen, Berichtsbemerkungen, optionale Handouts anderer Vorgänge, Logging-Neuladen,
+Installer-Abbruch, Stapelanzeige und Offboarding-Schutz-/Wiederholungslogik.
+Parser, XAML-Struktur und fachliche Mocks laufen unter Linux. Echtes WPF-Laden, Windows-ACLs,
+Windows PowerShell 5.1 und die echte PDF-Erzeugung benötigen weiterhin Windows beziehungsweise
+eine verfügbare PDF-Engine und können hier übersprungen werden.
 
-Actions sind auf Commit-SHAs festgelegt, der Workflow hat nur Lesezugriff (`contents: read`), und der
-Checkout speichert keine Anmeldedaten.
+Die Oberfläche arbeitet weiterhin kooperativ auf dem Dispatcher: langsame Netzwerk-/AD-
+Aufrufe blockieren während eines Schritts. Eine Hintergrund-Runspace-Ausführung ist nicht
+implementiert; Abbruch wirkt erst nach dem laufenden Schritt beziehungsweise der Stapelzeile.
 
 ## Manuelle Prüfung
 

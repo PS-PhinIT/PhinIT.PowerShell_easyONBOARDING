@@ -94,7 +94,7 @@ ReportFooter=Example GmbH - IT-Service
 Formats=Html;Json
 ; Auto, Edge, Wkhtmltopdf, None
 PdfEngine=Auto
-; Willkommensdokument aus der HTML-Vorlage (enthält nie ein Kennwort)
+; Legacy-Schlüssel: ignoriert; Onboarding-Handout wird immer erstellt (ohne Kennwort)
 CreateWelcomeDocument=1
 TemplatePathHTML=ReportTemplates\HTMLTemplate.txt
 TemplateLogo=

@@ -85,6 +85,8 @@
                                    Text="Privilegierte Gruppen werden nicht angeboten." />
                         <CheckBox x:Name="UpdEnableAccountCheck" Content="Konto aktivieren (derzeit deaktiviert)" Visibility="Collapsed" Margin="0,12,0,0"
                                   ToolTip="Für Konten, die bei der Anlage deaktiviert wurden (Aktivierung bei Übergabe)." />
+                        <CheckBox x:Name="UpdHandoutCheck" Content="HandOut für Änderung / Kennwort-Reset erzeugen (optional)" IsChecked="False" Margin="0,12,0,0"
+                                  ToolTip="Lesbares HTML/PDF ohne Kennwort; zusätzlich zum automatischen Audit und Bericht." />
                         <WrapPanel Margin="0,14,0,0">
                             <Button x:Name="UpdPreviewButton" Style="{StaticResource PrimaryButtonStyle}" Content="_Vorschau" Margin="0,0,8,8" />
                             <Button x:Name="UpdExecuteButton" Content="Änderungen _ausführen" IsEnabled="False" Margin="0,0,8,8" />

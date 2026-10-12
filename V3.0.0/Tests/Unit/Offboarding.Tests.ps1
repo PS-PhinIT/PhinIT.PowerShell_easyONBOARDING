@@ -113,6 +113,10 @@ $Extra
     function script:New-TestRequest {
         param([hashtable]$Data = @{}, [pscustomobject]$Config)
         $values = @{ Identity = 'mmuster'; Template = 'Standard'; ExitDate = '2027-03-31'; Ticket = 'CHG-1001'; Reason = 'Eigenkündigung' }
+        # Fixtures without Exchange explicitly opt out of conversion before testing AD-only completion.
+        if ((Get-EobConfigValue -Config $Config -Section 'Exchange' -Key 'Mode') -in @('', 'None', $null)) {
+            $values['ActionPhases'] = @{ ConvertToSharedMailbox = 'Off' }
+        }
         foreach ($key in $Data.Keys) { $values[$key] = $Data[$key] }
         return ConvertTo-EobOffboardingRequest -InputObject $values -Config $Config
     }
@@ -344,10 +348,186 @@ Describe 'Planinhalt' {
     }
 }
 
+Describe 'Lizenzentfernung nach bestätigter Postfachumwandlung' {
+    BeforeEach {
+        Set-DirectoryMock
+        $script:LicenseConfig = New-TestConfig -Extra "[Exchange]`nMode=Online"
+        Mock -ModuleName $script:Off Test-EobExchangeConnected { $true }
+        Mock -ModuleName $script:Off Get-EobMailboxInfo { [pscustomobject]@{ RecipientTypeDetails = 'UserMailbox'; PrimarySmtpAddress = 'mmuster@example.com' } }
+        Mock -ModuleName $script:Off Get-EobMailboxPermissionReport { @() }
+        Mock -ModuleName 'easyONB.Exchange' Assert-EobExchangeConnected { }
+        Mock -ModuleName 'easyONB.Exchange' Get-EobMailboxLocation { 'Online' }
+        Mock -ModuleName 'easyONB.Exchange' Get-EobMailboxInfo { [pscustomobject]@{ RecipientTypeDetails = 'SharedMailbox' } }
+        Mock -ModuleName 'easyONB.Exchange' Set-Mailbox { }
+        $script:LicenseActions = @{
+            ConvertToSharedMailbox = 'Immediate'; RemoveLicenseGroups = 'Immediate'
+            UpdateDescription = 'Off'; SetExpiration = 'Off'; DocumentMailboxPermissions = 'Off'
+        }
+    }
+
+    It 'verknüpft die Lizenzentfernung in derselben Phase mit der Umwandlung' {
+        $request = New-TestRequest -Config $script:LicenseConfig -Data @{ ActionPhases = $script:LicenseActions }
+        $plan = New-EobOffboardingPlan -Request $request -Config $script:LicenseConfig -Now $script:BeforeExit
+        $convert = $plan.Steps | Where-Object Action -EQ 'ConvertToSharedMailbox'
+        $license = $plan.Steps | Where-Object Action -EQ 'RemoveLicenseGroups'
+        $license.DependsOn | Should -Be @($convert.Id)
+        [array]::IndexOf(@($plan.Steps), $convert) | Should -BeLessThan ([array]::IndexOf(@($plan.Steps), $license))
+    }
+
+    It 'behält Lizenzen bei fehlgeschlagener Umwandlung und entfernt sie erst beim erfolgreichen Queue-Retry' {
+        Mock -ModuleName 'easyONB.Exchange' Set-Mailbox { throw 'Exchange nicht erreichbar.' }
+        $request = New-TestRequest -Config $script:LicenseConfig -Data @{ ActionPhases = $script:LicenseActions }
+        $plan = New-EobOffboardingPlan -Request $request -Config $script:LicenseConfig -Now $script:BeforeExit
+        $null = Invoke-EobOffboardingPlan -Plan $plan -Now $script:BeforeExit -Confirm:$false
+        ($plan.Steps | Where-Object Action -EQ 'ConvertToSharedMailbox').Status | Should -Be 'Failed'
+        ($plan.Steps | Where-Object Action -EQ 'RemoveLicenseGroups').Status | Should -Be 'Skipped'
+        Should -Invoke -ModuleName $script:Ad Remove-ADGroupMember -Times 0
+        @(Get-EobOffboardingQueue -Config $script:LicenseConfig -Now $script:BeforeExit)[0].NextPhase | Should -Be 'Immediate'
+        Mock -ModuleName 'easyONB.Exchange' Set-Mailbox { }
+        $retry = @(Invoke-EobDueOffboardingPhase -Config $script:LicenseConfig -Now $script:BeforeExit -AllowIntegration -Confirm:$false)
+        $retry[0].Outcome | Should -Be 'Succeeded'
+        Should -Invoke -ModuleName $script:Ad Remove-ADGroupMember -Times 1 -ParameterFilter { $Identity -eq 'CN=GRP-Lizenz-E3,OU=Gruppen,DC=example,DC=local' }
+    }
+
+    It 'behält Lizenzen solange der neue Postfachtyp noch nicht bestätigt ist' {
+        Mock -ModuleName 'easyONB.Exchange' Get-EobMailboxInfo { [pscustomobject]@{ RecipientTypeDetails = 'UserMailbox' } }
+        $request = New-TestRequest -Config $script:LicenseConfig -Data @{ ActionPhases = $script:LicenseActions }
+        $plan = New-EobOffboardingPlan -Request $request -Config $script:LicenseConfig -Now $script:BeforeExit
+        $null = Invoke-EobOffboardingPlan -Plan $plan -Now $script:BeforeExit -Confirm:$false
+        ($plan.Steps | Where-Object Action -EQ 'ConvertToSharedMailbox').Status | Should -Be 'Failed'
+        Should -Invoke -ModuleName $script:Ad Remove-ADGroupMember -Times 0
+    }
+
+    It 'behält Lizenzen bei Litigation Hold oder aktivem Archiv' -ForEach @(
+        @{ Held = $true; Archive = 'None' }, @{ Held = $false; Archive = 'Active' }
+    ) {
+        Mock -ModuleName 'easyONB.Exchange' Get-EobMailboxInfo {
+            [pscustomobject]@{ RecipientTypeDetails = 'SharedMailbox'; LitigationHoldEnabled = $Held; ArchiveStatus = $Archive }
+        }
+        $request = New-TestRequest -Config $script:LicenseConfig -Data @{ ActionPhases = $script:LicenseActions }
+        $plan = New-EobOffboardingPlan -Request $request -Config $script:LicenseConfig -Now $script:BeforeExit
+        $null = Invoke-EobOffboardingPlan -Plan $plan -Now $script:BeforeExit -Confirm:$false
+        ($plan.Steps | Where-Object Action -EQ 'ConvertToSharedMailbox').Status | Should -Be 'Failed'
+        ($plan.Steps | Where-Object Action -EQ 'RemoveLicenseGroups').Status | Should -Be 'Skipped'
+        $plan.Offboarding.CompletedPhases | Should -Not -Contain 'Immediate'
+        Should -Invoke -ModuleName $script:Ad Remove-ADGroupMember -Times 0
+    }
+
+    It 'prüft die Umwandlung in späteren Queue-Phasen erneut bevor Lizenzen entfernt werden' {
+        $script:LicenseActions.RemoveLicenseGroups = 'ExitDate'
+        $script:LicenseActions.RemoveGroups = 'Off'
+        $script:LicenseActions.DisableAccount = 'Off'
+        $script:LicenseActions.DenyLogonHours = 'Off'
+        $script:LicenseActions.ResetPassword = 'Off'
+        $script:LicenseActions.RevokeSessions = 'Off'
+        $script:LicenseActions.SetAutoReply = 'Off'
+        $script:LicenseActions.HideFromAddressLists = 'Off'
+        $script:LicenseActions.MoveToOU = 'Off'
+        $request = New-TestRequest -Config $script:LicenseConfig -Data @{ ActionPhases = $script:LicenseActions }
+        $plan = New-EobOffboardingPlan -Request $request -Config $script:LicenseConfig -Now $script:BeforeExit
+        $null = Invoke-EobOffboardingPlan -Plan $plan -Now $script:BeforeExit -Confirm:$false
+        $item = @(Get-EobOffboardingQueue -Config $script:LicenseConfig -Now ([datetime]'2027-04-01'))[0]
+        $queuedPlan = New-EobOffboardingPlanFromQueue -QueueEntry $item -Config $script:LicenseConfig -Now ([datetime]'2027-04-01')
+        $gate = $queuedPlan.Steps | Where-Object { $_.Action -eq 'ConvertToSharedMailbox' -and $_.Phase -eq 'ExitDate' }
+        ($queuedPlan.Steps | Where-Object Action -EQ 'RemoveLicenseGroups').DependsOn | Should -Be @($gate.Id)
+        Mock -ModuleName 'easyONB.Exchange' Set-Mailbox { throw 'Noch nicht verifiziert.' }
+        $null = Invoke-EobOffboardingPlan -Plan $queuedPlan -Now ([datetime]'2027-04-01') -Confirm:$false
+        Should -Invoke -ModuleName $script:Ad Remove-ADGroupMember -Times 0
+        $queuedPlan.Offboarding.CompletedPhases | Should -Not -Contain 'ExitDate'
+    }
+
+    It 'schützt auch als RemoveGroups klassifizierte Lizenzgruppen' {
+        Mock -ModuleName $script:Off Get-EobOffboardingGroupClassification {
+            @([pscustomobject]@{ Name = 'Lizenz'; Category = 'License'; Remove = $true; DistinguishedName = 'CN=Lizenz,DC=example,DC=local'; Reason = '' })
+        }
+        $script:LicenseActions.RemoveGroups = 'Immediate'
+        $script:LicenseActions.RemoveLicenseGroups = 'Off'
+        $request = New-TestRequest -Config $script:LicenseConfig -Data @{ ActionPhases = $script:LicenseActions }
+        $plan = New-EobOffboardingPlan -Request $request -Config $script:LicenseConfig -Now $script:BeforeExit
+        ($plan.Steps | Where-Object Action -EQ 'RemoveGroups').DependsOn | Should -Be @(($plan.Steps | Where-Object Action -EQ 'ConvertToSharedMailbox').Id)
+        Mock -ModuleName 'easyONB.Exchange' Set-Mailbox { throw 'Umwandlung fehlgeschlagen.' }
+        $null = Invoke-EobOffboardingPlan -Plan $plan -Now $script:BeforeExit -Confirm:$false
+        Should -Invoke -ModuleName $script:Ad Remove-ADGroupMember -Times 0
+    }
+
+    It 'blockiert Lizenzentfernung vor einer später angeforderten Umwandlung' {
+        $script:LicenseActions.ConvertToSharedMailbox = 'Retention'
+        $request = New-TestRequest -Config $script:LicenseConfig -Data @{ ActionPhases = $script:LicenseActions }
+        $plan = New-EobOffboardingPlan -Request $request -Config $script:LicenseConfig -Now $script:BeforeExit
+        @($plan.Findings.Code) | Should -Contain 'OFF_LICENSE_BEFORE_CONVERSION'
+        Test-EobPlanExecutable -Plan $plan | Should -BeFalse
+    }
+
+    It 'behält Lizenzen wenn die angeforderte Umwandlung ohne Exchange nicht ausführbar ist' {
+        $config = New-TestConfig
+        $request = New-TestRequest -Config $config -Data @{ ActionPhases = $script:LicenseActions }
+        $plan = New-EobOffboardingPlan -Request $request -Config $config -Now $script:BeforeExit
+        $null = Invoke-EobOffboardingPlan -Plan $plan -Now $script:BeforeExit -Confirm:$false
+        ($plan.Steps | Where-Object Action -EQ 'RemoveLicenseGroups').Status | Should -Be 'Skipped'
+        $plan.Offboarding.CompletedPhases | Should -Not -Contain 'Immediate'
+        Should -Invoke -ModuleName $script:Ad Remove-ADGroupMember -Times 0
+    }
+}
+
 Describe 'Ausführung und Warteschlange' {
     BeforeEach {
         Set-DirectoryMock
         $script:Config = New-TestConfig
+    }
+
+    It 'behält Warning, Skipped und Planned als wiederholbare Phase' -ForEach @(
+        @{ StepStatus = 'Warning' }, @{ StepStatus = 'Skipped' }, @{ StepStatus = 'Planned' }
+    ) {
+        $plan = New-EobOffboardingPlan -Request (New-TestRequest -Config $script:Config) -Config $script:Config -Now $script:BeforeExit
+        foreach ($step in $plan.Steps | Where-Object { $_.Phase -in @('Immediate', 'Always') }) { $step.Status = 'Succeeded' }
+        ($plan.Steps | Where-Object Action -EQ 'SetExpiration').Status = $StepStatus
+        $null = Complete-EobOffboardingRun -Plan $plan -SelectedPhase Immediate -NoQueue -Confirm:$false
+        $plan.Offboarding.CompletedPhases | Should -Not -Contain 'Immediate'
+    }
+
+    It 'verlangt in Simulation Simulated statt Live-Erfolg' {
+        $plan = New-EobOffboardingPlan -Request (New-TestRequest -Config $script:Config) -Config $script:Config -Now $script:BeforeExit -Simulation
+        foreach ($step in $plan.Steps | Where-Object { $_.Phase -in @('Immediate', 'Always') }) { $step.Status = 'Succeeded' }
+        $null = Complete-EobOffboardingRun -Plan $plan -SelectedPhase Immediate -NoQueue -Confirm:$false
+        $plan.Offboarding.CompletedPhases | Should -Not -Contain 'Immediate'
+        foreach ($step in $plan.Steps | Where-Object { $_.Phase -in @('Immediate', 'Always') }) { $step.Status = 'Simulated' }
+        $null = Complete-EobOffboardingRun -Plan $plan -SelectedPhase Immediate -NoQueue -Confirm:$false
+        $plan.Offboarding.CompletedPhases | Should -Contain 'Immediate'
+    }
+
+    It 'entfernt eine alte Phasenfreigabe wenn eine erneute Ausführung unvollständig bleibt' {
+        $plan = New-EobOffboardingPlan -Request (New-TestRequest -Config $script:Config) -Config $script:Config -Now $script:BeforeExit
+        $plan.Offboarding.CompletedPhases = @('Immediate')
+        foreach ($step in $plan.Steps | Where-Object { $_.Phase -in @('Immediate', 'Always') }) { $step.Status = 'Succeeded' }
+        ($plan.Steps | Where-Object Action -EQ 'SetExpiration').Status = 'Skipped'
+        $null = Complete-EobOffboardingRun -Plan $plan -SelectedPhase Immediate -NoQueue -Confirm:$false
+        $plan.Offboarding.CompletedPhases | Should -Not -Contain 'Immediate'
+    }
+
+    It 'speichert eine fehlgeschlagene Sofortphase als sofort fällig und wiederholt sie erfolgreich' {
+        Mock -ModuleName $script:Ad Set-ADAccountExpiration { throw 'Vorübergehend nicht erreichbar.' }
+        $plan = New-EobOffboardingPlan -Request (New-TestRequest -Config $script:Config) -Config $script:Config -Now $script:BeforeExit
+        $null = Invoke-EobOffboardingPlan -Plan $plan -Now $script:BeforeExit -Confirm:$false
+        $item = @(Get-EobOffboardingQueue -Config $script:Config -Now $script:BeforeExit)[0]
+        $item.NextPhase | Should -Be 'Immediate'
+        $item.IsDue | Should -BeTrue
+        $item.Entry.PhaseStepCount.Immediate | Should -BeGreaterThan 0
+        $item.Entry.CompletedPhases | Should -Not -Contain 'Immediate'
+        Mock -ModuleName $script:Ad Set-ADAccountExpiration { }
+        $retry = @(Invoke-EobDueOffboardingPhase -Config $script:Config -Now $script:BeforeExit -Confirm:$false)
+        $retry[0].Outcome | Should -Be 'Succeeded'
+        $item = @(Get-EobOffboardingQueue -Config $script:Config -Now $script:BeforeExit)[0]
+        $item.Entry.CompletedPhases | Should -Contain 'Immediate'
+        $item.NextPhase | Should -Be 'ExitDate'
+    }
+
+    It 'plant leere Sofortphasen nicht erneut ein' {
+        $request = New-TestRequest -Config $script:Config -Data @{ ActionPhases = @{ UpdateDescription = 'Off'; SetExpiration = 'Off'; ConvertToSharedMailbox = 'Off' } }
+        $plan = New-EobOffboardingPlan -Request $request -Config $script:Config -Now $script:BeforeExit
+        $null = Save-EobOffboardingQueueEntry -Plan $plan -Confirm:$false
+        $item = @(Get-EobOffboardingQueue -Config $script:Config -Now $script:BeforeExit)[0]
+        $item.Entry.PhaseStepCount.Immediate | Should -Be 0
+        $item.NextPhase | Should -Be 'ExitDate'
     }
 
     It 'führt nur die fällige Sofortphase aus und legt den Vorgang in die Warteschlange' {
@@ -626,6 +806,169 @@ Describe 'Home-Verzeichnis-Handler' {
         $clear = $plan.Steps | Where-Object { $_.Action -eq 'ArchiveHomeDirectory' -and $_.Handler -eq 'Set-EobAdUserAttribute' }
         $clear.DependsOn | Should -Be @($archive.Id)
         $clear.Parameters['Clear'] | Should -Be @('homeDirectory', 'homeDrive')
+    }
+}
+
+Describe 'Home-Zugriff mit ausdrücklicher Freigabe' {
+    BeforeEach {
+        $script:AccessRoot = Join-Path $TestDrive ('access-' + [guid]::NewGuid().ToString('N'))
+        $script:AccessHome = Join-Path $script:AccessRoot 'mmuster'
+        $null = New-Item -ItemType Directory -Path $script:AccessHome -Force
+        $script:AccessParameters = @{
+            Path = $script:AccessHome; SamAccountName = 'mmuster'; Account = 'chefin'
+            AuthorizedAccount = 'chefin'; DomainNetBiosName = 'EXAMPLE'; AllowedRoots = @($script:AccessRoot)
+        }
+    }
+
+    It 'verweigert den gemeinsamen Stammpfad selbst' {
+        $script:AccessParameters.Path = $script:AccessRoot
+        { Grant-EobHomeDirectoryAccess @script:AccessParameters -WhatIf } | Should -Throw '*Stammpfad selbst*'
+    }
+
+    It 'verweigert auch einen Stammpfad der zugleich ein Benutzerordner unter einem anderen Stammpfad ist' {
+        $script:AccessParameters.AllowedRoots += $script:AccessHome
+        { Grant-EobHomeDirectoryAccess @script:AccessParameters -WhatIf } | Should -Throw '*Stammpfad selbst*'
+    }
+
+    It 'verweigert andere Benutzerordner und beliebige Unterordner' -ForEach @(
+        @{ Child = 'anderer' }, @{ Child = 'anderer/mmuster' }, @{ Child = 'mmuster/unterordner' }, @{ Child = 'mmuster-neu' }
+    ) {
+        $script:AccessParameters.Path = Join-Path $script:AccessRoot $Child
+        { Grant-EobHomeDirectoryAccess @script:AccessParameters -WhatIf } | Should -Throw '*exakt*'
+    }
+
+    It 'verweigert Traversal auch wenn der normalisierte Pfad dem Benutzerordner entspricht' -ForEach @(
+        @{ Child = 'anderer/../mmuster' }, @{ Child = './mmuster' }, @{ Child = 'mmuster/../anderer' }
+    ) {
+        $script:AccessParameters.Path = Join-Path $script:AccessRoot $Child
+        { Grant-EobHomeDirectoryAccess @script:AccessParameters -WhatIf } | Should -Throw '*unsichere Pfadsegmente*'
+    }
+
+    It 'verweigert fehlende oder abweichende Empfängerfreigaben' -ForEach @(
+        @{ Authorization = '' }, @{ Authorization = 'anderer' }, @{ Authorization = 'OTHER\chefin' },
+        @{ Authorization = 'EXAMPLE\anderer' }, @{ Authorization = 'chefin@example.com' }
+    ) {
+        $script:AccessParameters.AuthorizedAccount = $Authorization
+        { Grant-EobHomeDirectoryAccess @script:AccessParameters -WhatIf } | Should -Throw '*nicht ausdrücklich freigegeben*'
+    }
+
+    It 'verweigert ungültige Absendernamen und Domänen' {
+        $script:AccessParameters.SamAccountName = '../mmuster'
+        { Grant-EobHomeDirectoryAccess @script:AccessParameters -WhatIf } | Should -Throw '*Ungültiger Home*'
+        $script:AccessParameters.SamAccountName = 'mmuster'
+        $script:AccessParameters.DomainNetBiosName = 'OTHER\chefin'
+        { Grant-EobHomeDirectoryAccess @script:AccessParameters -WhatIf } | Should -Throw '*NetBIOS*'
+    }
+
+    It 'simuliert den legitimen Benutzerordner ohne ACL-Zugriff' -ForEach @(
+        @{ Authorization = 'chefin' }, @{ Authorization = 'EXAMPLE\chefin' }, @{ Authorization = 'example\CHEFIN' }
+    ) {
+        $script:AccessParameters.AuthorizedAccount = $Authorization
+        $result = Grant-EobHomeDirectoryAccess @script:AccessParameters -WhatIf
+        $result.Message | Should -Match '^Simulation'
+        Test-Path -LiteralPath $script:AccessHome -PathType Container | Should -BeTrue
+    }
+
+    It 'verweigert nicht vorhandene Home-Verzeichnisse und relative Pfade' {
+        Remove-Item -LiteralPath $script:AccessHome -Recurse -Force
+        { Grant-EobHomeDirectoryAccess @script:AccessParameters -WhatIf } | Should -Throw
+        $script:AccessParameters.Path = 'mmuster'
+        { Grant-EobHomeDirectoryAccess @script:AccessParameters -WhatIf } | Should -Throw '*exakt*'
+    }
+
+    It 'verweigert ReparsePoints im Benutzerordner und in Vorfahren' -ForEach @(
+        @{ LinkLocation = 'home' }, @{ LinkLocation = 'root' }, @{ LinkLocation = 'ancestor' }
+    ) {
+        $blocked = switch ($LinkLocation) {
+            'home' { $script:AccessHome }
+            'root' { $script:AccessRoot }
+            'ancestor' { Split-Path -Parent $script:AccessRoot }
+        }
+        Mock -ModuleName $script:Off Get-Item {
+            [pscustomobject]@{
+                PSProvider = [pscustomobject]@{ Name = 'FileSystem' }; PSIsContainer = $true; FullName = $LiteralPath
+                Attributes = if ($LiteralPath -eq $blocked) { [IO.FileAttributes]::ReparsePoint } else { [IO.FileAttributes]::Directory }
+            }
+        }
+        { Grant-EobHomeDirectoryAccess @script:AccessParameters -WhatIf } | Should -Throw '*ReparsePoint*'
+    }
+
+    It 'verweigert einen echten symbolischen Benutzerordner' -Skip:($IsWindows) {
+        $other = Join-Path $script:AccessRoot 'anderer'
+        $null = New-Item -ItemType Directory -Path $other
+        Remove-Item -LiteralPath $script:AccessHome -Recurse -Force
+        $null = New-Item -ItemType SymbolicLink -Path $script:AccessHome -Target $other
+        { Grant-EobHomeDirectoryAccess @script:AccessParameters -WhatIf } | Should -Throw '*ReparsePoint*'
+    }
+
+    It 'plant keine Freigabe allein aufgrund des AD-Managerattributs' {
+        Set-DirectoryMock -User (New-TestUser -HomeDirectory $script:AccessHome)
+        $config = New-TestConfig -Extra "[FileServer]`nAllowedRoots=$($script:AccessRoot)"
+        $request = New-TestRequest -Config $config -Data @{ ActionPhases = @{ GrantManagerHomeAccess = 'Immediate' } }
+        $plan = New-EobOffboardingPlan -Request $request -Config $config -Now $script:BeforeExit
+        @($plan.Steps | Where-Object Handler -EQ 'Grant-EobHomeDirectoryAccess').Count | Should -Be 0
+        @($plan.Findings.Code) | Should -Contain 'OFF_HOME_ACCESS_AUTH_REQUIRED'
+    }
+
+    It 'bindet einen autorisierten Planschritt an den Absender und das freigegebene Empfängerkonto' -ForEach @(
+        @{ Authorization = 'chefin' }, @{ Authorization = 'EXAMPLE\chefin' }
+    ) {
+        Set-DirectoryMock -User (New-TestUser -HomeDirectory $script:AccessHome)
+        $config = New-TestConfig -Extra "[FileServer]`nAllowedRoots=$($script:AccessRoot)"
+        $request = New-TestRequest -Config $config -Data @{
+            AuthorizedHomeAccessAccount = $Authorization; ActionPhases = @{ GrantManagerHomeAccess = 'Immediate' }
+        }
+        $plan = New-EobOffboardingPlan -Request $request -Config $config -Now $script:BeforeExit
+        $step = $plan.Steps | Where-Object Handler -EQ 'Grant-EobHomeDirectoryAccess'
+        $step.Parameters.SamAccountName | Should -Be 'mmuster'
+        $step.Parameters.AuthorizedAccount | Should -Be $Authorization
+        $step.Parameters.Account | Should -Be 'chefin'
+        $null = Save-EobOffboardingQueueEntry -Plan $plan -Confirm:$false
+        $queued = @(Get-EobOffboardingQueue -Config $config -Now $script:BeforeExit)[0]
+        $queued.Entry.Request.AuthorizedHomeAccessAccount | Should -Be $Authorization
+        $restored = New-EobOffboardingPlanFromQueue -QueueEntry $queued -Config $config -Now $script:BeforeExit
+        ($restored.Steps | Where-Object Handler -EQ 'Grant-EobHomeDirectoryAccess').Parameters.AuthorizedAccount | Should -Be $Authorization
+    }
+
+    It 'plant keine Empfängerfreigabe für eine andere Domäne oder einen UPN' -ForEach @(
+        @{ Authorization = 'OTHER\chefin' }, @{ Authorization = 'chefin@example.com' }
+    ) {
+        Set-DirectoryMock -User (New-TestUser -HomeDirectory $script:AccessHome)
+        $config = New-TestConfig -Extra "[FileServer]`nAllowedRoots=$($script:AccessRoot)"
+        $request = New-TestRequest -Config $config -Data @{
+            AuthorizedHomeAccessAccount = $Authorization; ActionPhases = @{ GrantManagerHomeAccess = 'Immediate' }
+        }
+        $plan = New-EobOffboardingPlan -Request $request -Config $config -Now $script:BeforeExit
+        @($plan.Steps | Where-Object Handler -EQ 'Grant-EobHomeDirectoryAccess').Count | Should -Be 0
+        @($plan.Findings.Code) | Should -Contain 'OFF_HOME_ACCESS_AUTH_REQUIRED'
+    }
+
+    It 'verweigert die Freigabe bei geändertem AD-Managerkonto' {
+        Set-DirectoryMock -User (New-TestUser -HomeDirectory $script:AccessHome)
+        Mock -ModuleName $script:Off Resolve-EobAdUser {
+            if ($Identity -like 'CN=Chefin*') {
+                [pscustomobject]@{ SamAccountName = 'angreifer'; DisplayName = 'Andere Person'; Mail = 'angreifer@example.com'; DistinguishedName = $Identity }
+            }
+            else { $script:TestUser }
+        }
+        $config = New-TestConfig -Extra "[FileServer]`nAllowedRoots=$($script:AccessRoot)"
+        $request = New-TestRequest -Config $config -Data @{
+            AuthorizedHomeAccessAccount = 'chefin'; ActionPhases = @{ GrantManagerHomeAccess = 'Immediate' }
+        }
+        $plan = New-EobOffboardingPlan -Request $request -Config $config -Now $script:BeforeExit
+        @($plan.Steps | Where-Object Handler -EQ 'Grant-EobHomeDirectoryAccess').Count | Should -Be 0
+        @($plan.Findings.Code) | Should -Contain 'OFF_HOME_ACCESS_AUTH_REQUIRED'
+    }
+
+    It 'plant auch mit Empfängerfreigabe keinen Zugriff auf fremde Home-Verzeichnisse' {
+        Set-DirectoryMock -User (New-TestUser -HomeDirectory (Join-Path $script:AccessRoot 'anderer'))
+        $config = New-TestConfig -Extra "[FileServer]`nAllowedRoots=$($script:AccessRoot)"
+        $request = New-TestRequest -Config $config -Data @{
+            AuthorizedHomeAccessAccount = 'chefin'; ActionPhases = @{ GrantManagerHomeAccess = 'Immediate' }
+        }
+        $plan = New-EobOffboardingPlan -Request $request -Config $config -Now $script:BeforeExit
+        @($plan.Steps | Where-Object Handler -EQ 'Grant-EobHomeDirectoryAccess').Count | Should -Be 0
+        @($plan.Findings.Code) | Should -Contain 'OFF_HOME_NOT_ALLOWED'
     }
 }
 

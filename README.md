@@ -32,7 +32,7 @@ Exchange (Online, Server, Hybrid), Microsoft Graph und Entra Connect lassen sich
 | **Benutzer aktualisieren** | Attribute, Führungskraft und Gruppen mit Vorher/Nachher-Vorschau. Kennwort-Reset nur als eigene, bestätigte Aktion. |
 | **Offboarding** | 7 Vorlagen, z. B. Standardaustritt, Sofortige Sperrung, Externer Dienstleister, Ruhestand und Testmodus. Phasen: Sofort, Zum Austritt, Aufbewahrung, Endgültige Löschung. Warteschlange für geplante Phasen, Zustandsberichte vorher und nachher. |
 | **Massenverarbeitung** | CSV-Import für Onboarding und Offboarding, ab einstellbarer Anzahl mit Tippbestätigung. |
-| **Berichte und Audit** | HTML, PDF, JSON, CSV und TXT; Willkommensdokument aus Vorlagen. PDF über Microsoft Edge, alternativ wkhtmltopdf. Audit-Log als JSON Lines. |
+| **Berichte und Audit** | HTML, PDF, JSON, CSV und TXT; verpflichtendes Onboarding-Handout aus Vorlagen (auch für Externe und CSV). Andere Handouts nur nach Auswahl. PDF über Microsoft Edge, alternativ wkhtmltopdf. Audit-Log als JSON Lines. |
 | **Exchange** ¹ | Online, Server und Hybrid. Postfach anlegen (Server/Hybrid), Abwesenheitsnotiz, Weiterleitung, Ausblenden, Umwandlung in ein freigegebenes Postfach, Berechtigungsbericht. Im Hybridbetrieb wird erkannt, ob ein Postfach online oder lokal liegt. |
 | **Microsoft Graph** ¹ | Anmeldesitzungen beim Offboarding widerrufen: delegiert oder als Anwendung mit Zertifikat. |
 | **Entra Connect Sync** ¹ | Delta- oder Initial-Synchronisation per WinRM. Serverprüfung: Erreichbarkeit, laufender Zyklus, Stagingmodus. |
@@ -120,7 +120,6 @@ Details und Meldung von Schwachstellen: [SECURITY.md](SECURITY.md).
 .
 ├── README.md, CHANGELOG.md, SECURITY.md, CONTRIBUTING.md
 ├── VERSION                         einzige Versionsquelle
-├── .github/workflows/v3-ci.yml     CI: statische Prüfungen und Pester unter Windows und Linux
 └── V3.0.0/                         die Anwendung
     ├── Start-easyONBOARDING.ps1    Einstieg: Oberfläche oder -CheckOnly
     ├── Install-easyONBOARDING.ps1  Installer der Konfiguration (WPF)
@@ -150,7 +149,7 @@ und sind per `.gitignore` ausgeschlossen.
 | [OFFBOARDING.md](V3.0.0/docs/OFFBOARDING.md) | Vorlagen, Phasen, Warteschlange, Löschschutz |
 | [MIGRATION.md](V3.0.0/docs/MIGRATION.md) | Umstieg von 1.3.10 / 1.4.x |
 | [TESTING.md](V3.0.0/docs/TESTING.md) | automatische Tests, CI, manuelle Prüfliste |
-| [ARCHITECTURE.md](V3.0.0/docs/ARCHITECTURE.md) | Architektur und Entscheidungen |
+| [Architektur](CONTRIBUTING.md#architektur) | Modulgrenzen, Plan-Ausführung, Oberfläche und Dokumente |
 | [ReportTemplates/README.md](V3.0.0/ReportTemplates/README.md) | Platzhalter der Berichtsvorlagen |
 | [CHANGELOG.md](CHANGELOG.md) | Änderungen je Version |
 | [SECURITY.md](SECURITY.md) | Sicherheitskonzept, unterstützte Versionen, Meldung von Schwachstellen |
@@ -168,8 +167,8 @@ pwsh -NoProfile -File ./Scripts/Invoke-EobQualityCheck.ps1
 pwsh -NoProfile -Command "Invoke-Pester -Path ./Tests/Unit, ./Tests/Integration -Output Detailed"
 ```
 
-Die CI prüft jede Änderung unter Windows und Linux. Unter Windows lädt sie zusätzlich alle
-WPF-Fenster ohne Anzeige und erzeugt eine PDF mit Microsoft Edge. Konventionen und Ablauf:
+Ein CI-Workflow ist im aktuellen Repository-Stand nicht enthalten. Die Tests laden unter Windows
+zusätzlich alle WPF-Fenster ohne Anzeige und prüfen PDF mit Microsoft Edge, sofern verfügbar. Konventionen und Ablauf:
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Autor, Support und Lizenz

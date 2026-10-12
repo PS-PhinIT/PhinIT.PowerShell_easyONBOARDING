@@ -37,16 +37,37 @@ pwsh -NoProfile -File ./Scripts/Invoke-EobQualityCheck.ps1
 pwsh -NoProfile -Command "Invoke-Pester -Path ./Tests/Unit, ./Tests/Integration -Output Detailed"
 ```
 
-Die CI (`.github/workflows/v3-ci.yml` im Repository-Stamm) führt dieselben Prüfungen unter Linux und
-Windows aus; unter Windows zusätzlich das echte Laden der WPF-Oberfläche ohne Anzeige.
+Diese Prüfungen sind lokal unter Linux und Windows ausführbar; unter Windows prüfen die Tests
+zusätzlich das echte Laden der WPF-Oberfläche ohne Anzeige. Ein CI-Workflow ist im aktuellen
+Repository-Stand nicht enthalten.
+
+## Architektur
+
+* `Configuration` liest INI-Dateien und validiert sie gegen das Schema; `Setup` erstellt dieselbe
+  Konfiguration über den Installer. Externe Verbindungen werden nicht durch Konfigurationswerte
+  mit Kennwörtern hergestellt.
+* `Onboarding` und `Offboarding` erzeugen überprüfbare Pläne. `Core` führt deren freigegebene
+  Modul-Handler mit Abhängigkeiten, Simulation, Ergebnisstatus und Audit aus.
+* `ActiveDirectory`, `Exchange` und `Entra` kapseln externe Cmdlets. `Security` prüft Konten,
+  Gruppen, Eingaben und Kennwörter; schreibende Adapter prüfen `ShouldProcess`.
+* `UI` bindet WPF-Steuerelemente an diese Module. Dispatcher-Timer geben die Oberfläche zwischen
+  Schritten frei; ein laufender Netzwerkaufruf blockiert weiterhin den UI-Thread. Abbruch wirkt
+  erst nach dem laufenden Schritt beziehungsweise der laufenden Stapelzeile.
+* `Reporting` trennt technische Vorgangsberichte von Übergabedokumenten. Das Onboarding-Handout
+  ist ein verpflichtender Planschritt ohne Kennwort (auch für externe Konten und CSV-Zeilen).
+  In der Simulation wird es nur geprüft, nicht geschrieben. Andere Handouts werden ausdrücklich
+  angefordert; Audit und Offboarding-Zustandsberichte bleiben davon unabhängig.
+* Geplante Offboarding-Phasen werden ohne Kennwörter in der Warteschlange gespeichert und beim
+  nächsten Lauf erneut aus dem aktuellen AD-Zustand geplant. Endgültige Löschung ist davon
+  getrennt und verlangt Aufbewahrungsfrist, gesicherten Zustand und Tippbestätigung.
 
 ## Konventionen
 
 * **Module:** öffentliche Funktionen mit genehmigtem Verb und Präfix `Eob`
   (`Get-Verb`), Export ausschließlich über das Manifest (`FunctionsToExport`), Hilfe per
   Kommentarblock mit mindestens `.SYNOPSIS`.
-* **Strenge:** `Set-StrictMode -Version 3.0` in allen Fachmodulen und Skripten (UI-Modul: 1.0, siehe
-  ADR-13), `$ErrorActionPreference = 'Stop'` in Skripten.
+* **Strenge:** `Set-StrictMode -Version 3.0` in allen Fachmodulen und Skripten (UI-Modul: 1.0 für
+  dynamische WPF-Eigenschaften), `$ErrorActionPreference = 'Stop'` in Skripten.
 * **Windows PowerShell 5.1:** `Install-PS7_PDF.ps1` muss auch unter 5.1 laufen (keine Operatoren
   ab PowerShell 7 wie `? :`, `??`, `&&`, kein `$IsWindows`; geprüft durch
   `Tests/Unit/Prerequisites.Tests.ps1`).

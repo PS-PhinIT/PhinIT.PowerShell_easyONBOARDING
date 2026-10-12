@@ -1,0 +1,88 @@
+[95m
+[95mStarting discovery in 13 files.[0m
+[95mDiscovery found 631 tests in 1.16s.[0m
+[95mRunning tests.[0m
+What if: Performing the operation "Zur Gruppe 'GRP-Vertrieb' hinzufügen" on target "mmuster".
+What if: Performing the operation "Konto deaktivieren" on target "mmuster".
+What if: Performing the operation "Benutzerkonto anlegen" on target "neu (OU=M,DC=example,DC=local)".
+[32m[+] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/ActiveDirectory.Tests.ps1[0m[90m 5.67s (4.83s|581ms)[0m
+What if: Performing the operation "Datei schreiben" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/6c70365d-26d0-4876-bfca-cda0ebbe96c9/e5f065dd04094068a9637547bb0fd4a4.ini".
+What if: Performing the operation "Konfiguration aus '/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/6c70365d-26d0-4876-bfca-cda0ebbe96c9/legacy.ini' migrieren" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/6c70365d-26d0-4876-bfca-cda0ebbe96c9/migriert-119b65121cdc478fae75324f10cec92e.ini".
+[32m[+] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Configuration.Tests.ps1[0m[90m 3.31s (2.87s|341ms)[0m
+What if: Performing the operation "Testaktion" on target "A".
+[32m[+] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Core.Tests.ps1[0m[90m 1.84s (1.49s|274ms)[0m
+What if: Performing the operation "Exchange verbinden" on target "Online".
+What if: Performing the operation "Postfach aktivieren" on target "mmustermann".
+What if: Performing the operation "Anmeldesitzungen widerrufen" on target "max@example.com".
+What if: Performing the operation "Entra Connect Sync (Delta) starten" on target "sync01.example.local".
+[32m[+] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Integrations.Tests.ps1[0m[90m 4s (3.62s|331ms)[0m
+What if: Performing the operation "Zustandsbericht 'vorher' speichern" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/09d35ef4-e0d7-4b6a-a0da-be0bace053b7/a4374b578d7d4b768b53456efe248a8b/snapshots".
+What if: Performing the operation "Attribute setzen: description" on target "11111111-2222-3333-4444-555555555555".
+What if: Performing the operation "Ablaufdatum setzen: 01.04.2027 00:00" on target "11111111-2222-3333-4444-555555555555".
+What if: Performing the operation "Konto deaktivieren" on target "11111111-2222-3333-4444-555555555555".
+What if: Performing the operation "Anmeldezeiten vollständig sperren" on target "11111111-2222-3333-4444-555555555555".
+What if: Performing the operation "Kennwort zurücksetzen" on target "11111111-2222-3333-4444-555555555555".
+What if: Performing the operation "Aus Gruppe 'CN=GRP-Vertrieb,OU=Gruppen,DC=example,DC=local' entfernen" on target "11111111-2222-3333-4444-555555555555".
+What if: Performing the operation "Aus Gruppe 'CN=VL-Alle,OU=Gruppen,DC=example,DC=local' entfernen" on target "11111111-2222-3333-4444-555555555555".
+What if: Performing the operation "Verschieben nach OU=Ausgeschieden,DC=example,DC=local" on target "11111111-2222-3333-4444-555555555555".
+What if: Performing the operation "Zustandsbericht 'nachher' speichern" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/09d35ef4-e0d7-4b6a-a0da-be0bace053b7/a4374b578d7d4b768b53456efe248a8b/snapshots".
+What if: Performing the operation "Zustandsbericht 'vor-loeschung' speichern" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/09d35ef4-e0d7-4b6a-a0da-be0bace053b7/236c1b513c6842bcb7cd6223b0895e62/snapshots".
+What if: Performing the operation "Konto ENDGÜLTIG löschen" on target "11111111-2222-3333-4444-555555555555".
+What if: Performing the operation "Archivieren nach /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/09d35ef4-e0d7-4b6a-a0da-be0bace053b7/fs-cf2503da9b5c4ab5aba82ef40e412594/archiv/mmuster_20261012-112019" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/09d35ef4-e0d7-4b6a-a0da-be0bace053b7/fs-cf2503da9b5c4ab5aba82ef40e412594/home/mmuster".
+What if: Performing the operation "ReadAndExecute für EXAMPLE\chefin gewähren" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/09d35ef4-e0d7-4b6a-a0da-be0bace053b7/access-ec4a08e6dfb4485c940770cd6ba65c76/mmuster".
+What if: Performing the operation "ReadAndExecute für EXAMPLE\chefin gewähren" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/09d35ef4-e0d7-4b6a-a0da-be0bace053b7/access-6a4468bdcfcb404f87e267b54cf94507/mmuster".
+What if: Performing the operation "ReadAndExecute für EXAMPLE\chefin gewähren" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/09d35ef4-e0d7-4b6a-a0da-be0bace053b7/access-a9ec41cdec3242779e4252614e43e27a/mmuster".
+[32m[+] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Offboarding.Tests.ps1[0m[90m 28.35s (27.34s|819ms)[0m
+What if: Performing the operation "Benutzerkonto anlegen" on target "mmustermann (OU=Mitarbeiter,DC=example,DC=local)".
+What if: Performing the operation "Zur Gruppe 'GRP-Alle' hinzufügen" on target "mmustermann".
+What if: Performing the operation "Zur Gruppe 'GRP-Vertrieb' hinzufügen" on target "mmustermann".
+What if: Performing the operation "Zur Gruppe 'GRP-M365-Sync' hinzufügen" on target "mmustermann".
+What if: Performing the operation "Willkommensdokument erzeugen" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/661c71bf-205a-45b7-aa62-6fcad22852ad/reports/Welcome/mmustermann_Willkommen_20261012-112024.html".
+What if: Performing the operation "Home-Verzeichnis für x anlegen" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/661c71bf-205a-45b7-aa62-6fcad22852ad/home/neu".
+What if: Performing the operation "Benutzerkonto anlegen" on target "mmustermann (OU=Mitarbeiter,DC=example,DC=local)".
+What if: Performing the operation "Zur Gruppe 'GRP-Alle' hinzufügen" on target "mmustermann".
+What if: Performing the operation "Zur Gruppe 'GRP-M365-Sync' hinzufügen" on target "mmustermann".
+What if: Performing the operation "Willkommensdokument erzeugen" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/661c71bf-205a-45b7-aa62-6fcad22852ad/reports/Welcome/mmustermann_Willkommen_20261012-112025.html".
+What if: Performing the operation "Benutzerkonto anlegen" on target "abeispiel (OU=Mitarbeiter,DC=example,DC=local)".
+What if: Performing the operation "Zur Gruppe 'GRP-Alle' hinzufügen" on target "abeispiel".
+What if: Performing the operation "Zur Gruppe 'GRP-M365-Sync' hinzufügen" on target "abeispiel".
+What if: Performing the operation "Willkommensdokument erzeugen" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/661c71bf-205a-45b7-aa62-6fcad22852ad/reports/Welcome/abeispiel_Willkommen_20261012-112025.html".
+What if: Performing the operation "Benutzerkonto anlegen" on target "bbeispiel (OU=Mitarbeiter,DC=example,DC=local)".
+What if: Performing the operation "Zur Gruppe 'GRP-Alle' hinzufügen" on target "bbeispiel".
+What if: Performing the operation "Zur Gruppe 'GRP-M365-Sync' hinzufügen" on target "bbeispiel".
+What if: Performing the operation "Willkommensdokument erzeugen" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/661c71bf-205a-45b7-aa62-6fcad22852ad/reports/Welcome/bbeispiel_Willkommen_20261012-112025.html".
+[32m[+] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Onboarding.Tests.ps1[0m[90m 3.46s (3.21s|183ms)[0m
+What if: Performing the operation "Installieren" on target "PowerShell 7".
+What if: Performing the operation "Installieren" on target "ActiveDirectory-Modul (RSAT)".
+What if: Performing the operation "Installieren" on target "wkhtmltopdf".
+What if: Performing the operation "Auf RemoteSigned setzen" on target "Ausführungsrichtlinie (CurrentUser)".
+What if: Performing the operation "Anwendung kopieren" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/291c2733-6393-4fe2-84c6-a860cfa4d701/f4d1755ffb61416388de9abf7a2197c1".
+What if: Performing the operation "Anwendung kopieren" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/291c2733-6393-4fe2-84c6-a860cfa4d701/afdfbaf6b310421985ae2721acad9172".
+[32m[+] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Prerequisites.Tests.ps1[0m[90m 943ms (729ms|140ms)[0m
+[32m[+] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/QualityCheck.Tests.ps1[0m[90m 1.13s (1.08s|32ms)[0m
+What if: Performing the operation "Bericht '20261012-112027_mmustermann_e6e1e432' (Html, Json) schreiben" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/33267847-469c-4a09-b235-07115bfdd351/de5ca6ba2184460d9a7f9c449f448ace".
+What if: Performing the operation "Willkommensdokument erzeugen" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/33267847-469c-4a09-b235-07115bfdd351/welcome3/mmustermann_Willkommen_20261012-112028.html".
+What if: Performing the operation "Welcome-Mail über smtp.example.local senden" on target "max@example.com".
+[32m[+] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Reporting.Tests.ps1[0m[90m 1.15s (984ms|108ms)[0m
+[32m[+] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Security.Tests.ps1[0m[90m 1.46s (1.28s|111ms)[0m
+What if: Performing the operation "Konfiguration schreiben" on target "/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/.final-validation-temp/d84e90eb-e78d-4313-ab96-6c43ef9a8ce8/whatif.ini".
+[32m[+] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Setup.Tests.ps1[0m[90m 835ms (783ms|28ms)[0m
+[32m[+] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/UI.Tests.ps1[0m[90m 1.9s (1.59s|208ms)[0m
+[32m[+] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Integration/Pdf.Tests.ps1[0m[90m 34ms (0ms|8ms)[0m
+[93m[!] /home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Integration/Pdf.Tests.ps1[0m[90m 34ms (0ms|8ms)[0m
+[97mTests completed in 54.12s[0m
+[32mTests Passed: 620, [0m[90mFailed: 0, [0m[93mSkipped: 11, [0m[90mInconclusive: 0, [0m[37m[0m[90mNotRun: 0[0m
+/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/ActiveDirectory.Tests.ps1: passed=31 failed=0 skipped=0
+/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Configuration.Tests.ps1: passed=38 failed=0 skipped=2
+/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Core.Tests.ps1: passed=67 failed=0 skipped=0
+/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Integrations.Tests.ps1: passed=52 failed=0 skipped=0
+/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Offboarding.Tests.ps1: passed=101 failed=0 skipped=0
+/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Onboarding.Tests.ps1: passed=73 failed=0 skipped=0
+/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Prerequisites.Tests.ps1: passed=28 failed=0 skipped=4
+/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/QualityCheck.Tests.ps1: passed=6 failed=0 skipped=0
+/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Reporting.Tests.ps1: passed=46 failed=0 skipped=0
+/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Security.Tests.ps1: passed=74 failed=0 skipped=0
+/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/Setup.Tests.ps1: passed=12 failed=0 skipped=1
+/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Unit/UI.Tests.ps1: passed=92 failed=0 skipped=2
+/home/runner/work/PhinIT.PowerShell_easyONBOARDING/PhinIT.PowerShell_easyONBOARDING/V3.0.0/Tests/Integration/Pdf.Tests.ps1: passed=0 failed=0 skipped=2
+FINAL TOTAL: total=631 passed=620 failed=0 skipped=11 notrun=0
