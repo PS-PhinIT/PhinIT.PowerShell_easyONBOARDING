@@ -1,6 +1,6 @@
 # easyONBOARDING
 
-Version **3.0.2** · PowerShell 7.2+ · Windows 10/11, Windows Server 2019+ · Autor: Andreas Hepp (PHINIT.DE)
+Version **3.0.3** · PowerShell 7.2+ · Windows 10/11, Windows Server 2019+ · Autor: Andreas Hepp (PHINIT.DE)
 
 easyONBOARDING ist ein PowerShell-Werkzeug mit WPF-Oberfläche für den Lebenszyklus von
 Benutzerkonten im Active Directory. Damit lassen sich neue Mitarbeitende anlegen, bestehende Konten
