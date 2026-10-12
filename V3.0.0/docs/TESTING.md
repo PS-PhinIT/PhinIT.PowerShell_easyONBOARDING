@@ -23,6 +23,7 @@ pwsh -NoProfile -Command "Invoke-Pester -Path ./Tests/Unit, ./Tests/Integration 
 | Onboarding | `Tests/Unit/Onboarding.Tests.ps1` | Transliteration, Namensvorlagen, Kollisionen, Anfrageprüfung, Plan, Ausführung, CSV, Benutzer aktualisieren, Kennwort-Reset |
 | Offboarding | `Tests/Unit/Offboarding.Tests.ps1` | Vorlagen, Phasen und Termine, Schutzprüfung, Plan, Warteschlange, geplante Ausführung, Löschschutz (Frist, Sicherung mit Prüfsumme, Tippbestätigung), Home-Verzeichnisse, CSV |
 | Berichte | `Tests/Unit/Reporting.Tests.ps1` | Berichte ohne Secrets, HTML-Kodierung, Willkommensdokument, Welcome-Mail, PDF-Auswahl |
+| Separate Editoren | `Tests/Unit/ConfigEditor.Tests.ps1`, `Tests/Unit/ReportEditor.Tests.ps1` | Konfigurations-/Vorlagenbearbeitung ohne Oberfläche, Validierung und Sicherheitsregeln; WPF-Laden unter Windows |
 | Integrationen | `Tests/Unit/Integrations.Tests.ps1` | Exchange, Graph, Entra Connect mit Mocks |
 | Oberfläche | `Tests/Unit/UI.Tests.ps1` | XAML-Regeln, Ressourcen, Farbschemata, Abgleich Code/XAML, Hilfsfunktionen, Testmodus der Dialoge; unter Windows zusätzlich echtes Laden aller XAML-Dateien und Initialisieren aller Ansichten ohne Anzeige |
 | Qualitätsprüfung | `Tests/Unit/QualityCheck.Tests.ps1` | Erkennung von Syntaxfehlern, Kodierung, Secrets, Platzhaltern, Code-Behind, defekten Links; das Repository selbst besteht die Prüfungen |
@@ -63,6 +64,19 @@ Vor dem produktiven Einsatz und nach größeren Änderungen in einer **Testdomä
 - [ ] Wechsel hell/dunkel und Akzentfarbe; Texte überall lesbar (auch Dialoge, Tabellen, Auswahllisten).
 - [ ] Bedienung nur mit Tastatur (Tab-Reihenfolge, Enter/Esc in Dialogen) und mit 150 % Skalierung.
 - [ ] Live-Modus lässt sich nur nach Bestätigung aktivieren; mit Fehlern in der Konfiguration gar nicht.
+
+**Separate Editoren (ohne Testdomäne nutzbar)**
+
+- [ ] Beide `Start-easyONBOARDING.*Editor.ps1` mit `pwsh -STA` starten; Oberfläche bei 150 % Skalierung
+      und nur per Tastatur bedienen.
+- [ ] Konfiguration neu erstellen, vorhandene INI öffnen, Abschnitte und Suche nutzen; ungültige
+      Werte korrigieren, speichern und in der Anwendung erneut prüfen.
+- [ ] Kommentare, unbekannte Schlüssel und Unternehmens-/Rollenvorlagen beim Bearbeiten erhalten;
+      vorhandene Datei nur bewusst überschreiben.
+- [ ] Deutsche/englische Handout-Vorlage öffnen, Gestaltung ändern, Platzhalter einfügen;
+      Warnungen und Vorschau prüfen, eigene Vorlage speichern und `TemplatePathHTML` setzen.
+- [ ] Vorschau mit aktivem HTML und externen Links testen: kein Script, kein Ressourcenabruf.
+- [ ] Ungespeicherte Änderungen beim Öffnen, Neuerstellen und Schließen nicht unbemerkt verlieren.
 
 **Onboarding**
 

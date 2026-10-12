@@ -17,7 +17,7 @@ Exchange (Online, Server, Hybrid), Microsoft Graph und Entra Connect lassen sich
 - [Funktionen](#funktionen)
 - [Voraussetzungen](#voraussetzungen)
 - [Schnellstart](#schnellstart)
-- [Die drei Skripte](#die-drei-skripte)
+- [Die Skripte](#die-skripte)
 - [Sicherheitsgrundsätze](#sicherheitsgrundsätze)
 - [Aufbau des Repositorys](#aufbau-des-repositorys)
 - [Dokumentation](#dokumentation)
@@ -38,6 +38,7 @@ Exchange (Online, Server, Hybrid), Microsoft Graph und Entra Connect lassen sich
 | **Entra Connect Sync** ¹ | Delta- oder Initial-Synchronisation per WinRM. Serverprüfung: Erreichbarkeit, laufender Zyklus, Stagingmodus. |
 | **Unbeaufsichtigter Betrieb** | Fällige Offboarding-Phasen über eine geplante Aufgabe. Exchange Online und Graph melden sich dabei per Zertifikat (App-only) an. |
 | **Einrichtung** | `Install-PS7_PDF.ps1` prüft die Voraussetzungen und richtet sie ein. `Install-easyONBOARDING.ps1` erstellt die Konfiguration; auf einem Domänencontroller sind die Felder vorbelegt. |
+| **Separate Editoren** | WPF-Konfigurationseditor mit Schema-Prüfung und eigener WPF-Vorlageneditor für HTML-Handouts mit Gestaltung, Platzhaltern und sicherer Vorschau. Ohne AD-Verbindung nutzbar. |
 | **Oberfläche** | Ausgelegt für 1400 x 900, helles und dunkles Design, Hinweistexte an allen Feldern. Mehrere Unternehmen über eigene Konfigurationsdateien. |
 
 ¹ Optional und standardmäßig ausgeschaltet. Implementiert und mit Mocks getestet, aber nicht gegen
@@ -82,15 +83,35 @@ Ohne Installer: `Copy-Item .\Config\easyONB.ini.template .\Config\easyONB.ini` u
 anpassen ([CONFIGURATION.md](V3.0.0/docs/CONFIGURATION.md)). Eine Konfiguration der Version 1.x
 übernimmt *Tools › Konfiguration migrieren* bzw. `Scripts\Convert-LegacyConfiguration.ps1`.
 
-## Die drei Skripte
+## Die Skripte
 
 | Skript | Zweck | Wichtige Parameter |
 |---|---|---|
 | `Install-PS7_PDF.ps1` | Prüft PowerShell 7, das ActiveDirectory-Modul, die PDF-Erzeugung und die Ausführungsrichtlinie. Richtet Fehlendes nur auf Auswahl ein und kopiert die Anwendung auf Wunsch in einen Zielordner. Eine vorhandene Konfiguration bleibt dabei erhalten. | `-CheckOnly`, `-Install PowerShell7, ActiveDirectory, Wkhtmltopdf, ExecutionPolicy`, `-TargetPath`, `-WhatIf` |
 | `Install-easyONBOARDING.ps1` | Erstellt `Config\easyONB.ini` über eine eigene Oberfläche. Auf einem Domänencontroller werden die Werte aus dem AD vorbelegt. Prüft die Eingaben wie die Anwendung und sichert eine vorhandene Datei als `.bak`. | `-ConfigPath` |
 | `Start-easyONBOARDING.ps1` | Startet die Anwendung. Mit `-CheckOnly` werden nur Konfiguration und Umgebung geprüft. | `-CheckOnly`, `-Simulation`, `-Theme Light\|Dark`, `-ConfigPath` |
+| `Start-easyONBOARDING.ConfigEditor.ps1` | Separate WPF-Oberfläche zum Erstellen und Bearbeiten von INI-Konfigurationen mit Schema-Feldern und Validierung. | `-ConfigPath` |
+| `Start-easyONBOARDING.ReportEditor.ps1` | Separater WPF-Editor für HTML-Handout-Vorlagen mit grafischer Gestaltung, Platzhaltern und Vorschau mit Beispieldaten. | `-TemplatePath` |
 
 Alle Skripte haben eine Hilfe: `Get-Help .\<Skript>.ps1 -Detailed`.
+
+### Konfiguration und Handouts grafisch bearbeiten
+
+Die Editoren benötigen Windows und PowerShell 7.2+, aber weder Administratorrechte noch eine
+AD-Verbindung. Im Ordner `V3.0.0` starten:
+
+```powershell
+pwsh -STA -NoProfile -File .\Start-easyONBOARDING.ConfigEditor.ps1
+pwsh -STA -NoProfile -File .\Start-easyONBOARDING.ReportEditor.ps1
+```
+
+Die Konfiguration vor dem Speichern prüfen. Die eigene Handout-Vorlage als `.txt` oder `.html`
+speichern und ihren Pfad im Konfigurationseditor unter `[Report] TemplatePathHTML` eintragen.
+Relative Vorlagenpfade beziehen sich auf `V3.0.0`, nicht auf den Ordner der INI-Datei.
+Die Vorschau führt kein HTML oder JavaScript aus und lädt keine externen Ressourcen; sie ist
+eine sichere WPF-Darstellung, keine pixelgenaue Browseransicht.
+Technische Vorgangs-/Auditberichte (HTML, JSON, CSV, TXT und PDF) werden weiterhin unabhängig
+von Handout-Vorlagen erzeugt.
 
 ## Sicherheitsgrundsätze
 
@@ -122,10 +143,12 @@ Details und Meldung von Schwachstellen: [SECURITY.md](SECURITY.md).
 ├── VERSION                         einzige Versionsquelle
 └── V3.0.0/                         die Anwendung
     ├── Start-easyONBOARDING.ps1    Einstieg: Oberfläche oder -CheckOnly
+    ├── Start-easyONBOARDING.ConfigEditor.ps1  separater INI-Editor (WPF)
+    ├── Start-easyONBOARDING.ReportEditor.ps1  separater Handout-Vorlageneditor (WPF)
     ├── Install-easyONBOARDING.ps1  Installer der Konfiguration (WPF)
     ├── Install-PS7_PDF.ps1         Prüfung und Einrichtung der Voraussetzungen (WPF/Konsole)
     ├── Config/                     easyONB.ini.template, companies/, templates/ (Rollen, Offboarding), schemas/
-    ├── GUI/                        MainWindow, Views/, Dialogs/, Installer/, Styles/ (Light/Dark)
+    ├── GUI/                        MainWindow, Views/, Dialogs/, Installer/, Editors/, Styles/ (Light/Dark)
     ├── Modules/                    Core, Configuration, Security, ActiveDirectory, Exchange, Entra,
     │                               Reporting, Onboarding, Offboarding, Setup, UI
     ├── ReportTemplates/            Vorlagen des Willkommensdokuments
