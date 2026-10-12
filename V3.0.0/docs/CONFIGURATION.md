@@ -4,6 +4,20 @@ Die Konfiguration bleibt im INI-Format der Versionen 1.x. Alle Schlüssel mit Ty
 Beschreibung stehen in der [Konfigurationsreferenz](CONFIGURATION-REFERENCE.md), die direkt aus dem
 Schema `Config/schemas/easyONB.schema.psd1` erzeugt wird.
 
+## Separater WPF-Konfigurationseditor
+
+`pwsh -STA -NoProfile -File .\Start-easyONBOARDING.ConfigEditor.ps1` im Anwendungsordner
+`V3.0.0` startet den Editor ohne die Onboarding-Anwendung oder eine Verbindung zum AD.
+Mit `-ConfigPath` lässt sich eine vorhandene INI auswählen.
+Neue Konfigurationen basieren auf der mitgelieferten Vorlage. Die Oberfläche bietet
+Abschnitte, Suche, Beschreibungen und typgerechte Eingaben, etwa Schalter und Auswahllisten.
+Vor dem Speichern werden die Werte gegen das bestehende Schema und die fachlichen Regeln
+geprüft. Geheimnisse gehören auch hier nicht in die Datei.
+
+Handout-Vorlagen mit `Start-easyONBOARDING.ReportEditor.ps1` gestalten und anschließend
+unter `[Report] TemplatePathHTML` auswählen. Für die Anwendung gelten weiterhin die
+unten beschriebenen Zusammenführungs- und Pfadregeln.
+
 ## Dateien und Zusammenführung
 
 | Datei | Zweck |

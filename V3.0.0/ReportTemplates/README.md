@@ -31,3 +31,23 @@ Die technischen Berichte (Vorgangsbericht, Offboarding-Zustandsbericht) werden u
 Vorlagen erzeugt (HTML, JSON, CSV, TXT, optional PDF).
 
 Eine Übersicht aller Platzhalter enthält `docs/CONFIGURATION.md`.
+
+## Grafischer Vorlageneditor
+
+Im Anwendungsordner `V3.0.0`:
+
+```powershell
+pwsh -STA -NoProfile -File .\Start-easyONBOARDING.ReportEditor.ps1
+```
+
+Der separate WPF-Editor öffnet die mitgelieferten deutschen/englischen Vorlagen oder eine
+eigene Datei (`-TemplatePath`). Gestaltung und HTML-Quelltext lassen sich bearbeiten,
+Platzhalter gezielt einfügen und das Ergebnis mit erfundenen Beispieldaten prüfen.
+Als eigene `.txt`-/`.html`-Vorlage speichern und in der INI unter `[Report] TemplatePathHTML`
+eintragen; relative Pfade beziehen sich auf den Anwendungsordner.
+
+Die Vorschau ist eine sichere, vereinfachte WPF-Darstellung. Sie führt weder JavaScript noch
+sonstigen aktiven HTML-Inhalt aus und lädt keine externen Ressourcen. Eine pixelgenaue
+HTML-/PDF-Darstellung ist damit nicht zugesichert. Kennwort-Platzhalter gehören nicht in
+neue Vorlagen. Technische Vorgangsberichte und Audit-Auswertungen verwenden diese
+Handout-Vorlagen nicht.

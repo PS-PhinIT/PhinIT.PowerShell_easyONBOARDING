@@ -10,6 +10,9 @@ Datei `VERSION` im Repository-Stamm.
 
 ## [3.0.3] - 2026-10-12 Audit
 
+- Separate WPF-Skripte zum Erstellen und Bearbeiten von Konfigurationsdateien und HTML-Handout-
+  Vorlagen: schema-basierte Eingaben, Validierung, grafische Gestaltung, Platzhalter und sichere
+  Vorschau ohne Browserausführung. Die Editoren benötigen keine AD-Verbindung.
 - Onboarding-Handout verpflichtend für Mitarbeitende, Externe und CSV-Zeilen; fehlende Vorlage
   sperrt den Plan. Legacy-Opt-out wird ignoriert; Simulation schreibt kein Handout.
 - Andere Handouts nur auf ausdrückliche Auswahl, unabhängig von technischen Berichten und Audit.
