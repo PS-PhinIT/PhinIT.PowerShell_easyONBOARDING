@@ -14,7 +14,11 @@ Abschnitte, Suche, Beschreibungen und typgerechte Eingaben, etwa Schalter und Au
 Vor dem Speichern werden die Werte gegen das bestehende Schema und die fachlichen Regeln
 geprüft. Geheimnisse gehören auch hier nicht in die Datei.
 Der Editor bearbeitet nur die ausgewählte Datei, nicht die zusammengeführten Includes.
-Unternehmens- und Rollendateien bei Bedarf einzeln öffnen. Nach dem Speichern zusätzlich
+Unternehmens- und Rollendateien bei Bedarf mit `-ConfigPath <Datei.ini> -Fragment` einzeln
+öffnen. Dieser ausdrücklich gekennzeichnete Modus prüft Feldtypen und Secrets, verlangt
+aber keine vollständige Hauptkonfiguration; eine gültige Include-Datei darf etwa ohne
+Unternehmensabschnitt gespeichert werden. Ohne `-Fragment` bleibt die vollständige
+Konfigurationsprüfung vor dem Speichern aktiv. Nach dem Speichern zusätzlich
 die vollständige Konfiguration in der Anwendung prüfen (`Start-easyONBOARDING.ps1 -CheckOnly`);
 der Editor prüft keine Erreichbarkeit von AD oder anderen Integrationen.
 

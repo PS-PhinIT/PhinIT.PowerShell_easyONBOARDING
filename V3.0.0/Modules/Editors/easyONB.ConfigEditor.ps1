@@ -95,9 +95,11 @@ function Import-EobEditorDocument {
     <#
     .SYNOPSIS
         Öffnet ausschließlich die gewählte Datei, ohne Includes oder Verbindungen.
+    .PARAMETER Fragment
+        Kennzeichnet eine Include-Datei; nur anwendungsweite Abhängigkeiten werden zurückgestellt.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Path, [switch]$AsTemplate)
+    param([Parameter(Mandatory)][string]$Path, [switch]$AsTemplate, [switch]$Fragment)
 
     $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
     $config = Import-EobConfiguration -Path $resolved -NoIncludes
@@ -121,6 +123,7 @@ function Import-EobEditorDocument {
         SourceText = $source
         Path = $(if ($AsTemplate) { '' } else { $resolved })
         Dirty = [bool]$AsTemplate
+        Fragment = [bool]$Fragment
         InputErrors = @{}
         SourceFindings = @($config.Findings | Where-Object Code -In @('CFG_DUPLICATE_KEY', 'CFG_INVALID_LINE'))
     }
@@ -188,9 +191,21 @@ function Test-EobEditorDocument {
         New-EobFinding -Severity Error -Code 'EDITOR_UNSAFE_SOURCE' -Message 'Zugangsdaten aus der Quelldatei entfernen und erneut öffnen.'
         return
     }
+    # Nur Anforderungen an die zusammengeführte Anwendung zurückstellen, niemals lokale
+    # Schemafehler oder Sicherheitsregeln wie Löschphase und Aufbewahrungsfrist.
+    $applicationRequirements = @(
+        'CFG_NO_COMPANY', 'CFG_COMPANY_NO_UPN', 'CFG_COMPANY_NO_OU', 'CFG_COMPANY_NO_MAIL',
+        'CFG_NO_OFFBOARDING_TEMPLATE', 'CFG_MOVE_WITHOUT_OU', 'CFG_ARCHIVE_WITHOUT_ROOT',
+        'CFG_DEFAULT_TEMPLATE_MISSING', 'CFG_HOME_WITHOUT_ROOTS', 'CFG_TEMPLATE_NOT_FOUND'
+    )
     foreach ($finding in @(Test-EobConfiguration -Config $Document.Config)) {
+        if ($Document.Fragment -and $finding.Code -in $applicationRequirements) { continue }
         if ($finding.Code -eq 'CFG_INVALID_VALUE') { $finding.Severity = 'Error' }
         $finding
+    }
+    if ($Document.Fragment) {
+        New-EobFinding -Severity Information -Code 'EDITOR_FRAGMENT_MODE' -Message (
+            'Fragmentmodus: Schema und lokale Sicherheitsregeln geprüft. Anwendungsweite Abhängigkeiten werden erst mit der zusammengeführten Hauptkonfiguration geprüft.')
     }
     $Document.SourceFindings
 }
@@ -236,7 +251,7 @@ function Start-EobConfigEditor {
         Zeigt den unabhängigen deutschen WPF-Konfigurationseditor.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$AppRoot, [string]$ConfigPath)
+    param([Parameter(Mandatory)][string]$AppRoot, [string]$ConfigPath, [switch]$Fragment)
 
     if (-not $IsWindows -or [Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
         throw 'Windows/WPF und pwsh -STA sind erforderlich.'
@@ -255,7 +270,8 @@ function Start-EobConfigEditor {
     }
     $updateTitle = {
         $file = if ($state.Document.Path) { $state.Document.Path } else { 'Neue Konfiguration aus Vorlage' }
-        $controls.FileLabel.Text = $file + $(if ($state.Document.Dirty) { '  • Nicht gespeichert' } else { '  • Gespeichert' })
+        $mode = if ($state.Document.Fragment) { 'FRAGMENT · Teilprüfung' } else { 'HAUPTKONFIGURATION · Vollprüfung' }
+        $controls.FileLabel.Text = "$mode  •  $file" + $(if ($state.Document.Dirty) { '  • Nicht gespeichert' } else { '  • Gespeichert' })
     }
     $validate = {
         $findings = @(Test-EobEditorDocument -Document $state.Document)
@@ -334,9 +350,9 @@ function Start-EobConfigEditor {
         finally { $state.Rendering = $false }
     }
     $load = {
-        param([string]$Path, [bool]$New)
+        param([string]$Path, [bool]$New, [bool]$FragmentMode)
         # Erst vollständig laden; Fehler lassen das bisherige Dokument unverändert.
-        $document = Import-EobEditorDocument -Path $Path -AsTemplate:$New
+        $document = Import-EobEditorDocument -Path $Path -AsTemplate:$New -Fragment:$FragmentMode
         $state.Document = $document
         $state.Rendering = $true
         try {
@@ -390,13 +406,13 @@ function Start-EobConfigEditor {
     $controls.ValidateButton.Add_Click({ try { $null = & $validate } catch { & $message $_.Exception.Message } })
     $controls.SaveButton.Add_Click({ $null = & $save $false })
     $controls.SaveAsButton.Add_Click({ $null = & $save $true })
-    $controls.NewButton.Add_Click({ try { if (& $canLeave) { & $load $template $true } } catch { & $message $_.Exception.Message } })
+    $controls.NewButton.Add_Click({ try { if (& $canLeave) { & $load $template $true $false } } catch { & $message $_.Exception.Message } })
     $onOpen = {
         try {
             if (-not (& $canLeave)) { return }
             $dialog = [Microsoft.Win32.OpenFileDialog]::new()
             $dialog.Filter = 'INI-Konfiguration (*.ini)|*.ini|Alle Dateien (*.*)|*.*'
-            if ($dialog.ShowDialog($window) -eq $true) { & $load $dialog.FileName $false }
+            if ($dialog.ShowDialog($window) -eq $true) { & $load $dialog.FileName $false $state.Document.Fragment }
         }
         catch { & $message $_.Exception.Message }
     }
@@ -408,6 +424,6 @@ function Start-EobConfigEditor {
         catch { $closing.Cancel = $true; & $message $_.Exception.Message }
     }
     $window.Add_Closing($onClosing)
-    if ($ConfigPath) { & $load $ConfigPath $false } else { & $load $template $true }
+    if ($ConfigPath) { & $load $ConfigPath $false ([bool]$Fragment) } else { & $load $template $true $false }
     $null = $window.ShowDialog()
 }

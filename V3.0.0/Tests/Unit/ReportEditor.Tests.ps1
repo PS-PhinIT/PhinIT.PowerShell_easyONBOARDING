@@ -99,6 +99,38 @@ Describe 'Handout-Studio: Geheimnisse und echte Template-API' {
         (ConvertTo-EobEditorPreview -Template $encoded).Text | Should -Not -Match $value
     }
 
+    It 'verweigert inline formatierte und entity-kodierte Zugangsdaten ohne vorhandene Dateien zu verändern' {
+        $value = [guid]::NewGuid().ToString('N')
+        $encodedValue = ($value.ToCharArray() | ForEach-Object { '&#' + [int][char]$_ + ';' }) -join ''
+        $templates = @(
+            '<p>Passwort: <strong>' + $value + '</strong></p>'
+            '<p><span>Pa&#115;swort</span>&#58; <em>' + $encodedValue + '</em></p>'
+            '<div><span>Pass</span><b>wort</b>:<span>' + $value + '</span></div>'
+            '<p>Token&#61;<i>' + $encodedValue + '</i></p>'
+        )
+        $path = Join-Path $TestDrive 'styled-credentials.html'
+        Save-EobEditorTemplate -Path $path -Template '<p>Unverändert</p>' -Confirm:$false
+        foreach ($template in $templates) {
+            $check = Test-EobEditorTemplate -Template $template
+            $check.HasSensitiveText | Should -BeTrue
+            $check.IsValid | Should -BeFalse
+            (ConvertTo-EobEditorPreview -Template $template).CanSave | Should -BeFalse
+            { Save-EobEditorTemplate -Path $path -Template $template -Overwrite -Confirm:$false } | Should -Throw '*verweigert*'
+            Read-EobEditorTemplate -Path $path | Should -BeExactly '<p>Unverändert</p>'
+        }
+        @(Get-ChildItem $TestDrive -Filter '*.new').Count | Should -Be 0
+    }
+
+    It 'erlaubt leere Zugangsdaten-Beschriftungen an Blockgrenzen ohne den Folgeabsatz als Wert zu behandeln' {
+        $template = '<p>Passwort: <strong></strong></p><p>Nächster Hinweis ohne Zugangsdaten.</p><div>Token: <em>&nbsp;</em></div><div>Weitere Informationen.</div>'
+        $check = Test-EobEditorTemplate -Template $template
+        $check.HasSensitiveText | Should -BeFalse
+        $check.IsValid | Should -BeTrue
+        $path = Join-Path $TestDrive 'blank-labels.html'
+        Save-EobEditorTemplate -Path $path -Template $template -Confirm:$false
+        Read-EobEditorTemplate -Path $path | Should -BeExactly $template
+    }
+
     It 'nutzt die bestehende HTML-Kodierung und ersetzt niemals Regex-Dollarzeichen im Titel' {
         $expanded = Expand-EobTemplate -Template '<p>{{Name}}</p>' -Values @{ Name = '<>&"$1' }
         $expanded.Content | Should -BeExactly '<p>&lt;&gt;&amp;&quot;$1</p>'
