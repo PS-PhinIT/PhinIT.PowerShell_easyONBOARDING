@@ -18,6 +18,8 @@ Datei `VERSION` im Repository-Stamm.
 - Bemerkungen werden in den redigierten Onboarding-Vorgangsbericht übernommen.
 - Offboarding: Home-Zugriffe enger begrenzt, Lizenzentzug an erfolgreiche Postfachumwandlung
   gekoppelt und unvollständige Phasen für Wiederholung in der Warteschlange gehalten.
+  Ein erfolgreich archiviertes Home-Verzeichnis wird für Wiederholungen nach fehlgeschlagener
+  AD-Bereinigung nachgewiesen, statt den Vorgang dauerhaft zu blockieren.
 - Oberfläche und Installer: Protokollierung beim Neuladen aktualisiert, Stapelanzeige effizienter
   und abgelehnte Ausführungsrichtlinienänderung ohne blockierte Installationswarteschlange.
 - Defekte Dokumentationsverweise korrigiert; Architektur im bestehenden Beitragsleitfaden
