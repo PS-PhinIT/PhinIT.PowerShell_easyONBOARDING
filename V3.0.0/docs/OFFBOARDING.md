@@ -41,6 +41,11 @@ bleiben offen und werden beim nächsten Lauf erneut versucht. Folgephasen werden
 und gegen das AD geprüft (u. a. Abgleich der ObjectGUID); passt das Konto nicht mehr, wird der
 Vorgang blockiert.
 
+Wurde das Home-Verzeichnis bereits erfolgreich archiviert, die anschließende AD-Bereinigung
+aber nicht abgeschlossen, wird der gespeicherte Archivnachweis beim Wiederholen geprüft.
+Nur ein gültiger Nachweis erlaubt das Fortsetzen ohne erneutes Verschieben; ein lediglich
+fehlender Quellordner gilt nicht als erfolgreich archiviert.
+
 Unvollständige oder übersprungene aktivierte Schritte schließen eine Phase nicht ab. Eine
 offene Sofort-Phase bleibt unmittelbar fällig. Wird die Umwandlung in ein freigegebenes
 Postfach angefordert, werden Lizenzgruppen erst nach erfolgreicher Umwandlung entfernt;
@@ -52,8 +57,10 @@ Lizenzbedarf `RemoveLicenseGroups` in der Vorlage deaktivieren und Lizenzgruppen
 allgemeinen Gruppenentfernungen ausnehmen; erst nach der Prüfung manuell freigeben.
 
 Zugriff auf ein Home-Verzeichnis verlangt eine ausdrückliche Freigabe des Empfängerkontos
-(`AuthorizedHomeAccessAccount` in der Anfrage: einfacher `sAMAccountName`, ohne Domänenpräfix,
-z. B. `chefin`; leer = kein Zugriff). Der AD-Eintrag `manager` allein autorisiert
+(`AuthorizedHomeAccessAccount` in der Anfrage: einfacher `sAMAccountName`, z. B. `chefin`;
+leer = kein Zugriff). Die API akzeptiert auch `DOMÄNE\Konto`, aber nur bei exakter Übereinstimmung
+mit der verbundenen NetBIOS-Domäne und dem freizugebenden Konto; UPNs und fremde Domänen sind
+gesperrt. Der AD-Eintrag `manager` allein autorisiert
 keinen Zugriff. Das Ziel muss exakt `<AllowedRoot>/<SamAccountName>` sein; Stammpfade,
 fremde Verzeichnisse, Traversal und Reparse-Point-Vorfahren werden abgelehnt. Benutzerordner
 mit abweichender Namenskonvention müssen außerhalb dieses automatischen Vorgangs geprüft

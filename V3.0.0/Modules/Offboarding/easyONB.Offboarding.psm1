@@ -499,6 +499,7 @@ function New-EobOffboardingPlan {
     $context = New-EobOperationContext -Kind 'Offboarding' -Simulation:$Simulation
     if ($OperationId) { $context.OperationId = $OperationId }
     $plan = New-EobPlan -Kind 'Offboarding' -Context $context -Config $Config -Simulation:$Simulation
+    $plan.Runtime['ArchivedHomeDirectory'] = ''
     $details = [pscustomobject]@{
         Request             = $Request
         Template            = $null
@@ -837,7 +838,7 @@ function New-EobOffboardingPlan {
                     }
                     else {
                         $archive = Add-EobPlanStep @common -Title $script:ActionTitles[$action] -Handler 'Move-EobHomeDirectoryToArchive' -Risk High `
-                            -Parameters @{ Path = $user.HomeDirectory; ArchiveRoot = $archiveRoot; AllowedRoots = $roots; SamAccountName = $user.SamAccountName } `
+                            -Parameters @{ Path = $user.HomeDirectory; ArchiveRoot = $archiveRoot; AllowedRoots = $roots; SamAccountName = $user.SamAccountName; ArchivedHomeDirectory = '@Runtime:ArchivedHomeDirectory' } `
                             -Details ($stepDetails + "Von: $($user.HomeDirectory)", "Nach: $archiveRoot")
                         $null = Add-EobPlanStep @common -Title 'Home-Verzeichnis im Konto austragen' -Handler 'Set-EobAdUserAttribute' -Risk Low -DependsOn $archive.Id `
                             -Parameters @{ Identity = $guid; Clear = @('homeDirectory', 'homeDrive'); AllowPrivileged = $allowPrivileged } -Details $stepDetails
@@ -1186,6 +1187,17 @@ function Save-EobOffboardingQueueEntry {
         $value = $details.PhaseDates[$phase]
         $dates[$phase] = if ($null -ne $value) { ([datetime]$value).ToString('yyyy-MM-dd') } else { $null }
     }
+    $archiveProof = if ($null -ne $existing) { $existing['HomeArchiveProof'] } else { $null }
+    $archiveStep = $Plan.Steps | Where-Object { $_.Handler -eq 'Move-EobHomeDirectoryToArchive' -and $_.Status -eq 'Succeeded' } | Select-Object -Last 1
+    if ($null -ne $archiveStep -and $Plan.Runtime['ArchivedHomeDirectory']) {
+        $archiveProof = [ordered]@{
+            ObjectGuid = $details.User.ObjectGuid
+            SamAccountName = $archiveStep.Parameters.SamAccountName
+            SourcePath = [IO.Path]::GetFullPath($archiveStep.Parameters.Path)
+            ArchiveRoot = [IO.Path]::GetFullPath($archiveStep.Parameters.ArchiveRoot)
+            DestinationPath = [IO.Path]::GetFullPath($Plan.Runtime['ArchivedHomeDirectory'])
+        }
+    }
     $entry = [ordered]@{
         SchemaVersion     = 1
         OperationId       = $Plan.OperationId
@@ -1206,6 +1218,7 @@ function Save-EobOffboardingQueueEntry {
         RequiresIntegration = @($details.RequiresIntegration)
         SnapshotPaths     = $snapshots.ToArray()
         SnapshotHashes    = $hashes
+        HomeArchiveProof  = $archiveProof
         History           = $history.ToArray()
         Request           = ConvertTo-EobOffboardingQueueRequest -Plan $Plan
     }
@@ -1328,8 +1341,29 @@ function New-EobOffboardingPlanFromQueue {
     )
 
     $request = ConvertTo-EobOffboardingRequest -InputObject $QueueEntry.Entry['Request'] -Config $Config
-    return (New-EobOffboardingPlan -Request $request -Config $Config -Now $Now -Simulation:$Simulation -OperationId $QueueEntry.OperationId `
-            -CompletedPhases @($QueueEntry.Entry['CompletedPhases']) -ExpectedObjectGuid ([string]$QueueEntry.Entry['ObjectGuid']))
+    $plan = New-EobOffboardingPlan -Request $request -Config $Config -Now $Now -Simulation:$Simulation -OperationId $QueueEntry.OperationId `
+        -CompletedPhases @($QueueEntry.Entry['CompletedPhases']) -ExpectedObjectGuid ([string]$QueueEntry.Entry['ObjectGuid'])
+    $proof = $QueueEntry.Entry['HomeArchiveProof']
+    $archiveStep = $plan.Steps | Where-Object Handler -EQ 'Move-EobHomeDirectoryToArchive' | Select-Object -First 1
+    if ($null -ne $proof -and $null -ne $archiveStep) {
+        try {
+            $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+            if ($proof -isnot [System.Collections.IDictionary] -or
+                $proof['ObjectGuid'] -ine $plan.Offboarding.User.ObjectGuid -or
+                $proof['SamAccountName'] -ine $archiveStep.Parameters.SamAccountName -or
+                -not [IO.Path]::GetFullPath($archiveStep.Parameters.Path).Equals([string]$proof['SourcePath'], $comparison) -or
+                -not [IO.Path]::GetFullPath($archiveStep.Parameters.ArchiveRoot).Equals([string]$proof['ArchiveRoot'], $comparison)) {
+                throw 'Archivnachweis passt nicht zu Konto, Home-Verzeichnis und konfiguriertem Archivziel.'
+            }
+            Assert-EobOffboardingArchiveDestination -Path ([string]$proof['DestinationPath']) -ArchiveRoot $archiveStep.Parameters.ArchiveRoot `
+                -SamAccountName $archiveStep.Parameters.SamAccountName -AllowedRoots $archiveStep.Parameters.AllowedRoots
+            $plan.Runtime['ArchivedHomeDirectory'] = [string]$proof['DestinationPath']
+        }
+        catch {
+            Add-EobPlanFinding -Plan $plan -Severity Error -Code 'OFF_HOME_ARCHIVE_PROOF_INVALID' -Message $_.Exception.Message
+        }
+    }
+    return $plan
 }
 
 function Invoke-EobDueOffboardingPhase {
@@ -1645,6 +1679,8 @@ function Move-EobHomeDirectoryToArchive {
         Verschiebt ein Home-Verzeichnis in das Archiv (nur innerhalb der freigegebenen Stammpfade).
     .DESCRIPTION
         Es wird nichts gelöscht. Existiert das Verzeichnis nicht, wird der Schritt übersprungen.
+        Nur ein zuvor gespeicherter, zum Konto und Archivziel passender Archivnachweis erlaubt
+        einen erfolgreichen Wiederholungslauf ohne Quelle, damit die AD-Bereinigung nachgeholt wird.
     #>
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     [OutputType([pscustomobject])]
@@ -1652,7 +1688,8 @@ function Move-EobHomeDirectoryToArchive {
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][string]$ArchiveRoot,
         [Parameter(Mandatory)][string[]]$AllowedRoots,
-        [Parameter(Mandatory)][string]$SamAccountName
+        [Parameter(Mandatory)][string]$SamAccountName,
+        [AllowEmptyString()][string]$ArchivedHomeDirectory = ''
     )
 
     if (@($AllowedRoots | Where-Object { Test-EobPathWithin -Path $Path -Root $_ }).Count -eq 0) { throw "Home-Verzeichnis liegt nicht unter einem erlaubten Stammpfad: $Path" }
@@ -1661,6 +1698,14 @@ function Move-EobHomeDirectoryToArchive {
     if (@($AllowedRoots | Where-Object { $_.TrimEnd('\', '/') -ieq $normalizedPath }).Count -gt 0) { throw "Ein Stammpfad selbst wird nie verschoben: $Path" }
     if (Test-EobPathWithin -Path $Path -Root $ArchiveRoot) { throw "Das Verzeichnis liegt bereits im Archiv: $Path" }
 
+    if ($ArchivedHomeDirectory) {
+        Assert-EobOffboardingArchiveDestination -Path $ArchivedHomeDirectory -ArchiveRoot $ArchiveRoot -SamAccountName $SamAccountName -AllowedRoots $AllowedRoots
+        if (Test-Path -LiteralPath $Path) { throw "Home-Verzeichnis trotz Archivnachweis vorhanden; manuelle Prüfung erforderlich: $Path" }
+        if (-not $PSCmdlet.ShouldProcess($Path, "Archivnachweis für $ArchivedHomeDirectory bestätigen")) {
+            return New-EobNotProcessedResult -Message "Bereits archiviertes Home-Verzeichnis würde bestätigt: $ArchivedHomeDirectory"
+        }
+        return New-EobResult -Status Succeeded -Message "Home-Verzeichnis bereits verifiziert archiviert: $ArchivedHomeDirectory" -Data @{ ArchivedHomeDirectory = $ArchivedHomeDirectory }
+    }
     $target = [System.IO.Path]::Combine($ArchiveRoot, ('{0}_{1}' -f (Get-EobSafeFileName -Name $SamAccountName), (Get-Date).ToString('yyyyMMdd-HHmmss')))
     if (-not $PSCmdlet.ShouldProcess($Path, "Archivieren nach $target")) {
         return New-EobNotProcessedResult -Message "Home-Verzeichnis würde nach $target verschoben."
@@ -1668,11 +1713,54 @@ function Move-EobHomeDirectoryToArchive {
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
         return New-EobResult -Status Skipped -Message "Home-Verzeichnis nicht vorhanden: $Path"
     }
+    Assert-EobOffboardingDirectoryPath -Path $Path
     if (-not (Test-Path -LiteralPath $ArchiveRoot -PathType Container)) {
         $null = New-Item -ItemType Directory -Path $ArchiveRoot -Force -ErrorAction Stop
     }
+    Assert-EobOffboardingDirectoryPath -Path $ArchiveRoot
+    if (Test-Path -LiteralPath $target) { throw "Archivziel existiert bereits: $target" }
     Move-Item -LiteralPath $Path -Destination $target -ErrorAction Stop
+    Assert-EobOffboardingArchiveDestination -Path $target -ArchiveRoot $ArchiveRoot -SamAccountName $SamAccountName -AllowedRoots $AllowedRoots
     return New-EobResult -Status Succeeded -Message "Home-Verzeichnis archiviert: $target" -Data @{ ArchivedHomeDirectory = $target }
+}
+
+function Assert-EobOffboardingArchiveDestination {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$ArchiveRoot,
+        [Parameter(Mandatory)][string]$SamAccountName,
+        [Parameter(Mandatory)][string[]]$AllowedRoots
+    )
+
+    $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $fullRoot = [IO.Path]::GetFullPath($ArchiveRoot)
+    $leaf = [IO.Path]::GetFileName($fullPath)
+    if ($Path -match '(^|[\\/])\.{1,2}([\\/]|$)' -or
+        -not [IO.Path]::GetDirectoryName($fullPath).TrimEnd('\', '/').Equals($fullRoot.TrimEnd('\', '/'), $comparison) -or
+        $leaf -notmatch ('^{0}_[0-9]{{8}}-[0-9]{{6}}$' -f [regex]::Escape((Get-EobSafeFileName -Name $SamAccountName))) -or
+        @($AllowedRoots | Where-Object { Test-EobPathWithin -Path $fullPath -Root $_ }).Count -eq 0) {
+        throw "Archivnachweis liegt nicht im konfigurierten Benutzerarchiv: $Path"
+    }
+    Assert-EobOffboardingDirectoryPath -Path $fullPath
+}
+
+function Assert-EobOffboardingDirectoryPath {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+
+    $comparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if ($item.PSProvider.Name -ne 'FileSystem' -or -not $item.PSIsContainer) { throw "Kein Dateisystem-Verzeichnis: $Path" }
+    while ($null -ne $item) {
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "ReparsePoint im Home-Verzeichnis-Pfad: $($item.FullName)" }
+        $volumeRoot = [IO.Path]::GetPathRoot($item.FullName)
+        if ($item.FullName.TrimEnd('\', '/').Equals($volumeRoot.TrimEnd('\', '/'), $comparison)) { break }
+        $parent = Split-Path -Path $item.FullName -Parent
+        if (-not $parent -or $parent -eq $item.FullName) { break }
+        $item = Get-Item -LiteralPath $parent -Force -ErrorAction Stop
+    }
 }
 
 function Assert-EobOffboardingHomePath {
@@ -1715,16 +1803,7 @@ function Assert-EobOffboardingHomePath {
     }
     if (-not $matched) { throw "Home-Verzeichnis muss exakt einem erlaubten Stammpfad/$SamAccountName entsprechen: $Path" }
 
-    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
-    if ($item.PSProvider.Name -ne 'FileSystem' -or -not $item.PSIsContainer) { throw "Kein Dateisystem-Verzeichnis: $Path" }
-    while ($null -ne $item) {
-        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "ReparsePoint im Home-Verzeichnis-Pfad: $($item.FullName)" }
-        $volumeRoot = [IO.Path]::GetPathRoot($item.FullName)
-        if ($item.FullName.TrimEnd('\', '/').Equals($volumeRoot.TrimEnd('\', '/'), $comparison)) { break }
-        $parent = Split-Path -Path $item.FullName -Parent
-        if (-not $parent -or $parent -eq $item.FullName) { break }
-        $item = Get-Item -LiteralPath $parent -Force -ErrorAction Stop
-    }
+    Assert-EobOffboardingDirectoryPath -Path $Path
 }
 
 function Grant-EobHomeDirectoryAccess {

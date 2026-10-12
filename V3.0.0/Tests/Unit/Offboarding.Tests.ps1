@@ -797,6 +797,68 @@ Describe 'Home-Verzeichnis-Handler' {
         Test-Path -LiteralPath $script:HomeDir | Should -BeTrue
     }
 
+    It 'wiederholt nach erfolgreicher Archivierung nur die fehlgeschlagene AD-Bereinigung' {
+        Set-DirectoryMock -User (New-TestUser -HomeDirectory $script:HomeDir)
+        $config = New-TestConfig -Extra "[FileServer]`nAllowedRoots=$($script:Root)`nArchiveRoot=$($script:Archive)"
+        $request = New-TestRequest -Config $config -Data @{
+            ActionPhases = @{ ArchiveHomeDirectory = 'Immediate'; UpdateDescription = 'Off'; SetExpiration = 'Off'; DocumentMailboxPermissions = 'Off'; ConvertToSharedMailbox = 'Off' }
+        }
+        Mock -ModuleName $script:Ad Set-ADUser { throw 'AD-Bereinigung vorübergehend nicht möglich.' } -ParameterFilter { $Clear -contains 'homeDirectory' }
+        $plan = New-EobOffboardingPlan -Request $request -Config $config -Now $script:BeforeExit
+        $null = Invoke-EobOffboardingPlan -Plan $plan -Now $script:BeforeExit -Confirm:$false
+        $archivePath = $plan.Runtime.ArchivedHomeDirectory
+        Test-Path -LiteralPath $script:HomeDir | Should -BeFalse
+        Test-Path -LiteralPath $archivePath -PathType Container | Should -BeTrue
+        $plan.Offboarding.CompletedPhases | Should -Not -Contain 'Immediate'
+        $queued = @(Get-EobOffboardingQueue -Config $config -Now $script:BeforeExit)[0]
+        $queued.Entry.HomeArchiveProof.DestinationPath | Should -Be $archivePath
+        $queued.Entry.HomeArchiveProof.ObjectGuid | Should -Be $script:Guid
+        $queued.Entry.HomeArchiveProof.ObjectGuid = '99999999-2222-3333-4444-555555555555'
+        $invalid = New-EobOffboardingPlanFromQueue -QueueEntry $queued -Config $config -Now $script:BeforeExit
+        @($invalid.Findings.Code) | Should -Contain 'OFF_HOME_ARCHIVE_PROOF_INVALID'
+        Test-EobPlanExecutable -Plan $invalid | Should -BeFalse
+        $queued.Entry.HomeArchiveProof.ObjectGuid = $script:Guid
+        $retryPlan = New-EobOffboardingPlanFromQueue -QueueEntry $queued -Config $config -Now $script:BeforeExit
+        $retryPlan.Runtime.ArchivedHomeDirectory | Should -Be $archivePath
+        Mock -ModuleName $script:Ad Set-ADUser { } -ParameterFilter { $Clear -contains 'homeDirectory' }
+        $null = Invoke-EobOffboardingPlan -Plan $retryPlan -Now $script:BeforeExit -Confirm:$false
+        ($retryPlan.Steps | Where-Object Handler -EQ 'Move-EobHomeDirectoryToArchive').Status | Should -Be 'Succeeded'
+        $retryPlan.Offboarding.CompletedPhases | Should -Contain 'Immediate'
+        $retryPlan.Runtime.ArchivedHomeDirectory | Should -Be $archivePath
+        @(Get-ChildItem -LiteralPath $script:Archive -Directory).Count | Should -Be 1
+        Test-Path -LiteralPath (Join-Path $archivePath 'datei.txt') | Should -BeTrue
+        Should -Invoke -ModuleName $script:Ad Set-ADUser -Times 2 -ParameterFilter { $Clear -contains 'homeDirectory' }
+    }
+
+    It 'behält einen fehlenden Quellpfad ohne Archivnachweis als unvollständig' {
+        Set-DirectoryMock -User (New-TestUser -HomeDirectory $script:HomeDir)
+        Remove-Item -LiteralPath $script:HomeDir -Recurse -Force
+        $config = New-TestConfig -Extra "[FileServer]`nAllowedRoots=$($script:Root)`nArchiveRoot=$($script:Archive)"
+        $request = New-TestRequest -Config $config -Data @{
+            ActionPhases = @{ ArchiveHomeDirectory = 'Immediate'; UpdateDescription = 'Off'; SetExpiration = 'Off'; DocumentMailboxPermissions = 'Off'; ConvertToSharedMailbox = 'Off' }
+        }
+        $plan = New-EobOffboardingPlan -Request $request -Config $config -Now $script:BeforeExit
+        $null = Invoke-EobOffboardingPlan -Plan $plan -Now $script:BeforeExit -Confirm:$false
+        ($plan.Steps | Where-Object Handler -EQ 'Move-EobHomeDirectoryToArchive').Status | Should -Be 'Skipped'
+        $plan.Offboarding.CompletedPhases | Should -Not -Contain 'Immediate'
+        Should -Invoke -ModuleName $script:Ad Set-ADUser -Times 0 -ParameterFilter { $Clear -contains 'homeDirectory' }
+        $queued = @(Get-EobOffboardingQueue -Config $config -Now $script:BeforeExit)[0]
+        $queued.Entry.HomeArchiveProof | Should -BeNullOrEmpty
+        $queued.NextPhase | Should -Be 'Immediate'
+    }
+
+    It 'akzeptiert keinen Archivnachweis für fremde Verzeichnisse oder außerhalb des Archivziels' -ForEach @(
+        @{ Relative = 'anderer_20261012-110000'; Parent = 'archive' }
+        @{ Relative = 'mmuster_20261012-110000'; Parent = 'outside' }
+    ) {
+        Remove-Item -LiteralPath $script:HomeDir -Recurse -Force
+        $parentPath = if ($Parent -eq 'archive') { $script:Archive } else { Join-Path $script:Root 'anderes-archiv' }
+        $destination = Join-Path $parentPath $Relative
+        $null = New-Item -ItemType Directory -Path $destination -Force
+        { Move-EobHomeDirectoryToArchive -Path $script:HomeDir -ArchiveRoot $script:Archive -AllowedRoots $script:Root `
+                -SamAccountName 'mmuster' -ArchivedHomeDirectory $destination -Confirm:$false } | Should -Throw '*Benutzerarchiv*'
+    }
+
     It 'plant Archivierung und Austragen des Home-Verzeichnisses' {
         Set-DirectoryMock -User (New-TestUser -HomeDirectory $script:HomeDir)
         $config = New-TestConfig -Extra "[FileServer]`nAllowedRoots=$($script:Root)`nArchiveRoot=$($script:Archive)"
