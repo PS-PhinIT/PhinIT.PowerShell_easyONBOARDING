@@ -73,9 +73,12 @@ Vor dem produktiven Einsatz und nach größeren Änderungen in einer **Testdomä
       Werte korrigieren, speichern und in der Anwendung erneut prüfen.
 - [ ] Kommentare, unbekannte Schlüssel und Unternehmens-/Rollenvorlagen beim Bearbeiten erhalten;
       vorhandene Datei nur bewusst überschreiben.
+- [ ] Include-Dateien mit `-Fragment` öffnen und speichern; Typ-/Secret-Fehler bleiben gesperrt.
+      Ohne diesen Schalter verhindert eine unvollständige Hauptkonfiguration das Speichern.
 - [ ] Deutsche/englische Handout-Vorlage öffnen, Gestaltung ändern, Platzhalter einfügen;
       Warnungen und Vorschau prüfen, eigene Vorlage speichern und `TemplatePathHTML` setzen.
 - [ ] Vorschau mit aktivem HTML und externen Links testen: kein Script, kein Ressourcenabruf.
+- [ ] Zugangsdaten auch mit HTML-Formatierung oder Zeichenreferenzen werden beim Speichern abgewiesen.
 - [ ] Ungespeicherte Änderungen beim Öffnen, Neuerstellen und Schließen nicht unbemerkt verlieren.
 
 **Onboarding**

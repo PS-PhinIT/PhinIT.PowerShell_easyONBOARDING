@@ -90,7 +90,7 @@ anpassen ([CONFIGURATION.md](V3.0.0/docs/CONFIGURATION.md)). Eine Konfiguration 
 | `Install-PS7_PDF.ps1` | Prüft PowerShell 7, das ActiveDirectory-Modul, die PDF-Erzeugung und die Ausführungsrichtlinie. Richtet Fehlendes nur auf Auswahl ein und kopiert die Anwendung auf Wunsch in einen Zielordner. Eine vorhandene Konfiguration bleibt dabei erhalten. | `-CheckOnly`, `-Install PowerShell7, ActiveDirectory, Wkhtmltopdf, ExecutionPolicy`, `-TargetPath`, `-WhatIf` |
 | `Install-easyONBOARDING.ps1` | Erstellt `Config\easyONB.ini` über eine eigene Oberfläche. Auf einem Domänencontroller werden die Werte aus dem AD vorbelegt. Prüft die Eingaben wie die Anwendung und sichert eine vorhandene Datei als `.bak`. | `-ConfigPath` |
 | `Start-easyONBOARDING.ps1` | Startet die Anwendung. Mit `-CheckOnly` werden nur Konfiguration und Umgebung geprüft. | `-CheckOnly`, `-Simulation`, `-Theme Light\|Dark`, `-ConfigPath` |
-| `Start-easyONBOARDING.ConfigEditor.ps1` | Separate WPF-Oberfläche zum Erstellen und Bearbeiten von INI-Konfigurationen mit Schema-Feldern und Validierung. | `-ConfigPath` |
+| `Start-easyONBOARDING.ConfigEditor.ps1` | Separate WPF-Oberfläche zum Erstellen und Bearbeiten von INI-Konfigurationen mit Schema-Feldern und Validierung. | `-ConfigPath`, `-Fragment` für Include-Dateien |
 | `Start-easyONBOARDING.ReportEditor.ps1` | Separater WPF-Editor für HTML-Handout-Vorlagen mit grafischer Gestaltung, Platzhaltern und Vorschau mit Beispieldaten. | `-TemplatePath` |
 
 Alle Skripte haben eine Hilfe: `Get-Help .\<Skript>.ps1 -Detailed`.

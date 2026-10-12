@@ -112,10 +112,16 @@ function Test-EobEditorTemplate {
                 ';' + $tag.Value.Trim('<', '>') + ';'
             }))
     $redacted = Protect-EobSensitiveText -Text $plain
+    # Inline styling must not separate a credential label from its visible value.
+    # Block delimiters keep an empty label from consuming text in the next paragraph.
+    $visible = [regex]::Replace($Template, '(?i)</?(?:p|div|br|hr|h[1-6]|table|tr|td|th|li|ul|ol|section|article|header|footer|blockquote|pre)\b[^>]*>', ';')
+    $visible = [Net.WebUtility]::HtmlDecode([regex]::Replace($visible, '<[^>]*>', ''))
+    $visibleRedacted = Protect-EobSensitiveText -Text $visible
+    $hasSensitiveText = ($redacted -cne $plain -or $visibleRedacted -cne $visible)
     [pscustomobject]@{
-        IsValid = ($secrets.Count -eq 0 -and $redacted -ceq $plain -and $Template.Length -le 1MB)
+        IsValid = ($secrets.Count -eq 0 -and -not $hasSensitiveText -and $Template.Length -le 1MB)
         SecretPlaceholders = $secrets
-        HasSensitiveText = ($redacted -cne $plain)
+        HasSensitiveText = $hasSensitiveText
     }
 }
 

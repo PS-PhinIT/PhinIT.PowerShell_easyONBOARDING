@@ -189,6 +189,7 @@ Describe 'Konfigurationsstudio – WPF' {
         foreach ($name in @('NewButton', 'OpenButton', 'ValidateButton', 'SaveButton', 'SaveAsButton', 'SectionList', 'SearchBox', 'FieldPanel', 'FindingsBox', 'FileLabel', 'StatusLabel')) {
             $text | Should -Match ('x:Name="ConfigEditor' + $name + '"')
         }
+
     }
 
     It 'lädt die echte WPF-Oberfläche ohne Anzeige unter Windows/STA' -Skip:(-not $script:CanLoadEditorWpf) {
@@ -197,5 +198,61 @@ Describe 'Konfigurationsstudio – WPF' {
         $window.FindName('ConfigEditorFieldPanel') | Should -Not -BeNullOrEmpty
         $window.FindName('ConfigEditorSaveButton').Content | Should -Be '_Speichern'
         $window.Close()
+    }
+}
+
+Describe 'Konfigurationsstudio – explizite Include-Fragmente' {
+    It 'bearbeitet und speichert ausgelieferte Rollen- und Offboarding-Fragmente ohne Company hinzuzufügen' {
+        foreach ($name in @('role-templates.ini', 'offboarding-templates.ini')) {
+            $document = Import-EobEditorDocument -Path (Join-Path $script:EditorRoot "Config/templates/$name") -Fragment
+            $document.Fragment | Should -BeTrue
+            $section = @($document.Config.Sections.Keys)[0]
+            Set-EobEditorValue -Document $document -Section $section -Key 'DisplayName' -Value 'Angepasste Vorlage'
+            $findings = @(Test-EobEditorDocument -Document $document)
+            @($findings | Where-Object Severity -EQ 'Error').Count | Should -Be 0
+            $findings.Code | Should -Contain 'EDITOR_FRAGMENT_MODE'
+            $target = Join-Path $TestDrive $name
+            Save-EobEditorDocument -Document $document -Path $target -AcceptWarnings -Confirm:$false
+            $document.Fragment | Should -BeTrue
+            $saved = Import-EobEditorDocument -Path $target -Fragment
+            $saved.Config.Sections.Contains('Company') | Should -BeFalse
+            $saved.Config.Sections[$section]['DisplayName'] | Should -Be 'Angepasste Vorlage'
+            $saved.SourceText | Should -Match ';'
+        }
+    }
+
+    It 'verlangt im unveränderten Hauptmodus weiterhin Company und blockiert das Speichern' {
+        $document = Import-EobEditorDocument -Path (Join-Path $script:EditorRoot 'Config/templates/role-templates.ini')
+        $document.Fragment | Should -BeFalse
+        @(Test-EobEditorDocument -Document $document).Code | Should -Contain 'CFG_NO_COMPANY'
+        { Save-EobEditorDocument -Document $document -Path (Join-Path $TestDrive 'main.ini') -AcceptWarnings -Confirm:$false } | Should -Throw '*Fehler*'
+    }
+
+    It 'blockiert ungültige Typen und fehlende Pflichtschlüssel auch im Fragmentmodus' {
+        $document = Import-EobEditorDocument -Path (Join-Path $script:EditorRoot 'Config/templates/offboarding-templates.ini') -Fragment
+        Set-EobEditorValue -Document $document -Section 'OffboardingTemplate.Standard' -Key 'RetentionDays' -Value 'keine Zahl'
+        Set-EobEditorValue -Document $document -Section 'OffboardingTemplate.Standard' -Key 'DisplayName' -Value ''
+        $findings = @(Test-EobEditorDocument -Document $document)
+        @($findings | Where-Object { $_.Code -eq 'CFG_INVALID_VALUE' -and $_.Severity -eq 'Error' }).Count | Should -BeGreaterThan 0
+        $findings.Code | Should -Contain 'CFG_MISSING_KEY'
+        { Save-EobEditorDocument -Document $document -Path (Join-Path $TestDrive 'invalid-fragment.ini') -AcceptWarnings -Confirm:$false } | Should -Throw '*Fehler*'
+    }
+
+    It 'behält lokale Lösch- und Aufbewahrungsregeln im Fragmentmodus bei' {
+        $document = Import-EobEditorDocument -Path (Join-Path $script:EditorRoot 'Config/templates/offboarding-templates.ini') -Fragment
+        Set-EobEditorValue -Document $document -Section 'OffboardingTemplate.Standard' -Key 'RetentionDays' -Value '0'
+        @(Test-EobEditorDocument -Document $document).Code | Should -Contain 'CFG_DELETION_WITHOUT_RETENTION'
+        Set-EobEditorValue -Document $document -Section 'OffboardingTemplate.Standard' -Key 'Action.DeleteAccount' -Value 'Immediate'
+        @(Test-EobEditorDocument -Document $document).Code | Should -Contain 'CFG_DELETION_WRONG_PHASE'
+    }
+
+    It 'blockiert Secret-Felder und eingebettete Zugangsdaten auch im Fragmentmodus' {
+        $path = Join-Path $TestDrive 'secret-fragment.ini'
+        [IO.File]::WriteAllText($path, "[EigenerAbschnitt]`nApiToken=$([guid]::NewGuid())`n")
+        { Import-EobEditorDocument -Path $path -Fragment } | Should -Throw '*Zugangsdaten*'
+        $document = Import-EobEditorDocument -Path (Join-Path $script:EditorRoot 'Config/templates/role-templates.ini') -Fragment
+        $document.Config.Sections['EigenerAbschnitt'] = [ordered]@{ ApiToken = [guid]::NewGuid().ToString() }
+        @(Test-EobEditorDocument -Document $document).Code | Should -Contain 'EDITOR_UNSAFE_VALUE'
+        { Save-EobEditorDocument -Document $document -Path (Join-Path $TestDrive 'unsafe-fragment.ini') -AcceptWarnings -Confirm:$false } | Should -Throw '*Fehler*'
     }
 }
