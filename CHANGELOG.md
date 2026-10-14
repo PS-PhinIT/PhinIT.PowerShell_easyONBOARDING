@@ -8,19 +8,6 @@ Datei `VERSION` im Repository-Stamm.
 |---|---|---|
 | **3.0.x** | aktuell, unterstützt | `V3.0.0/` |
 
-## [Unveröffentlicht]
-
-### Behoben
-
-- Offboarding ohne aktivierte Exchange-Integration (`[Exchange] Mode=None`) oder ohne konfigurierten
-  Dateiserver (`[FileServer]`) blieb dauerhaft unvollständig: Die Lizenzentfernung wartete auf eine
-  nie ausführbare Postfachumwandlung und wurde bei jedem Lauf übersprungen, sodass die
-  Aufbewahrungsphase nie abgeschlossen wurde. Lizenzgruppen werden in diesem Fall nicht mehr
-  eingeplant (Warnung `OFF_LICENSE_CONVERSION_UNAVAILABLE`, Lizenzen bleiben erhalten); Konten ohne
-  E-Mail-Adresse oder Postfach werden ohne Umwandlung lizenzbereinigt. Ein nicht konfigurierter
-  Dateiserver wird nur noch als Hinweis `OFF_FILESERVER_NOT_CONFIGURED` gemeldet statt als
-  Warnung bzw. technischer Fehlermeldung.
-
 ## [3.0.3] - 2026-10-12 Audit
 
 - Separate WPF-Skripte zum Erstellen und Bearbeiten von Konfigurationsdateien und HTML-Handout-
@@ -34,6 +21,11 @@ Datei `VERSION` im Repository-Stamm.
   gekoppelt und unvollständige Phasen für Wiederholung in der Warteschlange gehalten.
   Ein erfolgreich archiviertes Home-Verzeichnis wird für Wiederholungen nach fehlgeschlagener
   AD-Bereinigung nachgewiesen, statt den Vorgang dauerhaft zu blockieren.
+- Offboarding ohne Exchange-Integration (`[Exchange] Mode=None`) oder ohne Dateiserver
+  (`[FileServer]`) bleibt nicht mehr dauerhaft unvollständig: Lizenzgruppen werden ohne mögliche
+  Postfachumwandlung nicht eingeplant (Warnung `OFF_LICENSE_CONVERSION_UNAVAILABLE`, Lizenzen
+  bleiben erhalten); Konten ohne E-Mail-Adresse oder Postfach werden ohne Umwandlung
+  lizenzbereinigt. Ein fehlender Dateiserver ist nur noch der Hinweis `OFF_FILESERVER_NOT_CONFIGURED`.
 - Oberfläche und Installer: Protokollierung beim Neuladen aktualisiert, Stapelanzeige effizienter
   und abgelehnte Ausführungsrichtlinienänderung ohne blockierte Installationswarteschlange.
 - Defekte Dokumentationsverweise korrigiert; Architektur im bestehenden Beitragsleitfaden
