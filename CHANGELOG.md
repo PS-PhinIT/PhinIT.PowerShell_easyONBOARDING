@@ -8,6 +8,19 @@ Datei `VERSION` im Repository-Stamm.
 |---|---|---|
 | **3.0.x** | aktuell, unterstützt | `V3.0.0/` |
 
+## [Unveröffentlicht]
+
+### Behoben
+
+- Offboarding ohne aktivierte Exchange-Integration (`[Exchange] Mode=None`) oder ohne konfigurierten
+  Dateiserver (`[FileServer]`) blieb dauerhaft unvollständig: Die Lizenzentfernung wartete auf eine
+  nie ausführbare Postfachumwandlung und wurde bei jedem Lauf übersprungen, sodass die
+  Aufbewahrungsphase nie abgeschlossen wurde. Lizenzgruppen werden in diesem Fall nicht mehr
+  eingeplant (Warnung `OFF_LICENSE_CONVERSION_UNAVAILABLE`, Lizenzen bleiben erhalten); Konten ohne
+  E-Mail-Adresse oder Postfach werden ohne Umwandlung lizenzbereinigt. Ein nicht konfigurierter
+  Dateiserver wird nur noch als Hinweis `OFF_FILESERVER_NOT_CONFIGURED` gemeldet statt als
+  Warnung bzw. technischer Fehlermeldung.
+
 ## [3.0.3] - 2026-10-12 Audit
 
 - Separate WPF-Skripte zum Erstellen und Bearbeiten von Konfigurationsdateien und HTML-Handout-

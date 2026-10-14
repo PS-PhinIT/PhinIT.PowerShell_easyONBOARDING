@@ -56,6 +56,17 @@ Größe, Archiv und Aufbewahrungsanforderungen vorab in Exchange prüfen. Bei ni
 Lizenzbedarf `RemoveLicenseGroups` in der Vorlage deaktivieren und Lizenzgruppen auch von
 allgemeinen Gruppenentfernungen ausnehmen; erst nach der Prüfung manuell freigeben.
 
+Nicht aktivierte Integrationen werden übersprungen, statt bei jeder Ausführung Fehler oder
+übersprungene Schritte zu erzeugen: Bei `[Exchange] Mode=None` entfallen alle Postfachaktionen
+(Hinweis `OFF_EXCHANGE_DISABLED`). Verlangt die Vorlage dennoch `ConvertToSharedMailbox`, plant
+easyONBOARDING für Konten mit E-Mail-Adresse keine Lizenzentfernung (Warnung
+`OFF_LICENSE_CONVERSION_UNAVAILABLE`); die Lizenzgruppen bleiben erhalten und sind nach der manuellen
+Umwandlung manuell zu entfernen. Soll ohne Exchange-Integration lizenzbereinigt werden,
+`ConvertToSharedMailbox` in der Vorlage auf `Off` setzen. Konten ohne E-Mail-Adresse oder ohne
+Postfach brauchen keine Umwandlung; ihre Lizenzgruppen werden normal entfernt. Ist `[FileServer]`
+nicht konfiguriert (`AllowedRoots`/`ArchiveRoot` leer), entfallen Archivierung und Home-Zugriff
+mit dem Hinweis `OFF_FILESERVER_NOT_CONFIGURED`. Die übrigen Phasenschritte laufen jeweils normal.
+
 Zugriff auf ein Home-Verzeichnis verlangt eine ausdrückliche Freigabe des Empfängerkontos
 (`AuthorizedHomeAccessAccount` in der Anfrage: einfacher `sAMAccountName`, z. B. `chefin`;
 leer = kein Zugriff). Die API akzeptiert auch `DOMÄNE\Konto`, aber nur bei exakter Übereinstimmung
