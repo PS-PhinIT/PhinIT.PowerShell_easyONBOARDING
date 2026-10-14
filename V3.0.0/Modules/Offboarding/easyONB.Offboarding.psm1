@@ -594,11 +594,14 @@ function New-EobOffboardingPlan {
     $exchangeMode = $details.ExchangeMode
     $mailboxIdentity = if ($user.UserPrincipalName) { $user.UserPrincipalName } else { $user.SamAccountName }
     $mailboxAvailable = $false
+    # Exchange deaktiviert, aber E-Mail-Adresse vorhanden: ein Postfach kann existieren, wird hier aber nicht verwaltet.
+    $mailboxUnmanaged = $false
     $mailboxActions = @('SetAutoReply', 'SetForwarding', 'HideFromAddressLists', 'ConvertToSharedMailbox', 'DocumentMailboxPermissions')
     $mailboxRequested = @($mailboxActions | Where-Object { $actions[$_] -ne 'Off' }).Count -gt 0
     if ($mailboxRequested) {
         if ($exchangeMode -eq 'None') {
             Add-EobPlanFinding -Plan $plan -Severity Information -Code 'OFF_EXCHANGE_DISABLED' -Message 'Exchange-Integration deaktiviert: Postfachaktionen werden nicht ausgeführt und sind manuell zu erledigen.'
+            $mailboxUnmanaged = [bool]$user.Mail
         }
         elseif (-not $user.Mail) {
             Add-EobPlanFinding -Plan $plan -Severity Information -Code 'OFF_NO_MAIL' -Message 'Das Konto hat keine E-Mail-Adresse: Postfachaktionen entfallen.'
@@ -665,11 +668,18 @@ function New-EobOffboardingPlan {
         $details.PhaseStepCount[$phase] = 0
         $dueDate = $phaseDates[$phase]
         $conversionDependency = @()
+        $licenseRemovalBlocked = $false
         $conversionRequested = $actions['ConvertToSharedMailbox'] -ne 'Off'
         $phaseHasLicenses = @($groups | Where-Object {
                 $_.Category -eq 'License' -and ($actions['RemoveLicenseGroups'] -eq $phase -or ($_.Remove -and $actions['RemoveGroups'] -eq $phase))
             }).Count -gt 0
-        if ($conversionRequested -and $phaseHasLicenses) {
+        if ($conversionRequested -and $phaseHasLicenses -and $mailboxUnmanaged) {
+            # Ohne Exchange-Integration ist die Umwandlung nie prüfbar: Lizenzschritte nicht planen, statt sie bei jeder Ausführung zu überspringen.
+            $licenseRemovalBlocked = $true
+            Add-EobPlanFinding -Plan $plan -Severity Warning -Code 'OFF_LICENSE_CONVERSION_UNAVAILABLE' `
+                -Message "Lizenzgruppen werden in der Phase '$($script:PhaseTitles[$phase])' nicht entfernt: Die Vorlage verlangt die Umwandlung in ein freigegebenes Postfach, die Exchange-Integration ist aber deaktiviert ([Exchange] Mode=None). Postfach manuell umwandeln und Lizenzgruppen danach manuell entfernen (oder ConvertToSharedMailbox in der Vorlage auf Off setzen)."
+        }
+        elseif ($conversionRequested -and $phaseHasLicenses -and $mailboxAvailable) {
             $conversionDependency = @("SharedMailboxConversionRequired-$phase")
             $phaseOrder = @('Immediate', 'ExitDate', 'Retention', 'FinalDeletion')
             $conversionIndex = [array]::IndexOf($phaseOrder, $actions['ConvertToSharedMailbox'])
@@ -677,15 +687,12 @@ function New-EobOffboardingPlan {
             if ($phaseIndex -lt $conversionIndex) {
                 Add-EobPlanFinding -Plan $plan -Severity Error -Code 'OFF_LICENSE_BEFORE_CONVERSION' -Message "Lizenzentfernung in $phase darf nicht vor der Postfachumwandlung stattfinden."
             }
-            elseif ($phaseIndex -gt $conversionIndex -and $mailboxAvailable) {
+            elseif ($phaseIndex -gt $conversionIndex) {
                 # Queued plans have no prior runtime results: verify conversion again in this phase.
                 $gate = Add-EobPlanStep -Plan $plan -Action 'ConvertToSharedMailbox' -Title 'Freigegebenes Postfach vor Lizenzentfernung erneut prüfen' -Target $user.SamAccountName `
                     -Handler 'ConvertTo-EobSharedMailbox' -Phase $phase -Risk High -Parameters @{ Identity = $mailboxIdentity; Mode = $exchangeMode; VerifyLicenseEligibility = $true }
                 $conversionDependency = @($gate.Id)
                 $details.PhaseStepCount[$phase]++
-            }
-            if (-not $mailboxAvailable) {
-                Add-EobPlanFinding -Plan $plan -Severity Warning -Code 'OFF_LICENSE_CONVERSION_UNAVAILABLE' -Message 'Lizenzentfernung bleibt gesperrt, solange die angeforderte Postfachumwandlung nicht geprüft werden kann.'
             }
         }
         foreach ($action in $script:ActionOrder) {
@@ -741,6 +748,7 @@ function New-EobOffboardingPlan {
                 }
                 'RemoveGroups' {
                     foreach ($group in @($groups | Where-Object Remove)) {
+                        if ($licenseRemovalBlocked -and $group.Category -eq 'License') { continue }
                         $risk = if ($group.Category -eq 'Privileged') { 'High' } else { 'Medium' }
                         $groupDependencies = @()
                         if ($group.Category -eq 'License') { $groupDependencies = $conversionDependency }
@@ -751,7 +759,7 @@ function New-EobOffboardingPlan {
                     }
                 }
                 'RemoveLicenseGroups' {
-                    foreach ($group in @($groups | Where-Object Category -EQ 'License')) {
+                    foreach ($group in @($groups | Where-Object Category -EQ 'License' | Where-Object { -not $licenseRemovalBlocked })) {
                         $null = Add-EobPlanStep @common -Title "Lizenzgruppe entfernen: $($group.Name)" -Handler 'Remove-EobAdGroupMembership' -Risk Medium `
                             -DependsOn $conversionDependency `
                             -Parameters @{ Identity = $guid; Group = $group.DistinguishedName; AllowPrivileged = $allowPrivileged } -Details $stepDetails
@@ -833,7 +841,10 @@ function New-EobOffboardingPlan {
                     if (-not $user.HomeDirectory) {
                         Add-EobPlanFinding -Plan $plan -Severity Information -Code 'OFF_NO_HOME' -Message 'Kein Home-Verzeichnis eingetragen.'
                     }
-                    elseif (-not $archiveRoot -or @($roots | Where-Object { Test-EobPathWithin -Path $user.HomeDirectory -Root $_ }).Count -eq 0 -or @($roots | Where-Object { Test-EobPathWithin -Path $archiveRoot -Root $_ }).Count -eq 0) {
+                    elseif ($roots.Count -eq 0 -or -not $archiveRoot) {
+                        Add-EobPlanFinding -Plan $plan -Severity Information -Code 'OFF_FILESERVER_NOT_CONFIGURED' -Message 'Dateiserver nicht konfiguriert ([FileServer] AllowedRoots/ArchiveRoot): Die Archivierung des Home-Verzeichnisses entfällt und ist manuell zu erledigen.'
+                    }
+                    elseif (@($roots | Where-Object { Test-EobPathWithin -Path $user.HomeDirectory -Root $_ }).Count -eq 0 -or @($roots | Where-Object { Test-EobPathWithin -Path $archiveRoot -Root $_ }).Count -eq 0) {
                         Add-EobPlanFinding -Plan $plan -Severity Warning -Code 'OFF_HOME_NOT_ALLOWED' -Message "Home-Verzeichnis '$($user.HomeDirectory)' bzw. Archivziel liegt nicht unter [FileServer] AllowedRoots: Archivierung entfällt."
                     }
                     else {
@@ -851,6 +862,9 @@ function New-EobOffboardingPlan {
                     $managerPrincipal = if ($netbios -and $null -ne $managerInfo) { "$netbios\$($managerInfo.SamAccountName)" } else { '' }
                     if (-not $user.HomeDirectory -or $null -eq $managerInfo -or -not $managerInfo.SamAccountName) {
                         Add-EobPlanFinding -Plan $plan -Severity Information -Code 'OFF_NO_HOME_ACCESS' -Message 'Lesezugriff für die Führungskraft entfällt (kein Home-Verzeichnis oder keine Führungskraft).'
+                    }
+                    elseif ($roots.Count -eq 0) {
+                        Add-EobPlanFinding -Plan $plan -Severity Information -Code 'OFF_FILESERVER_NOT_CONFIGURED' -Message 'Dateiserver nicht konfiguriert ([FileServer] AllowedRoots): Der Lesezugriff der Führungskraft auf das Home-Verzeichnis entfällt und ist manuell zu erledigen.'
                     }
                     elseif (-not $authorization -or ($authorization -ine $managerInfo.SamAccountName -and
                             (-not $managerPrincipal -or $authorization -ine $managerPrincipal))) {

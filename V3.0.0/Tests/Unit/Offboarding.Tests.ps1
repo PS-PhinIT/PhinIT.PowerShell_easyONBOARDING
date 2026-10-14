@@ -458,14 +458,88 @@ Describe 'Lizenzentfernung nach bestätigter Postfachumwandlung' {
         Test-EobPlanExecutable -Plan $plan | Should -BeFalse
     }
 
-    It 'behält Lizenzen wenn die angeforderte Umwandlung ohne Exchange nicht ausführbar ist' {
+    It 'behält Lizenzen ohne Exchange, plant dafür aber keine dauerhaft übersprungenen Schritte' {
         $config = New-TestConfig
         $request = New-TestRequest -Config $config -Data @{ ActionPhases = $script:LicenseActions }
         $plan = New-EobOffboardingPlan -Request $request -Config $config -Now $script:BeforeExit
+        @($plan.Findings.Code) | Should -Contain 'OFF_LICENSE_CONVERSION_UNAVAILABLE'
+        @($plan.Steps | Where-Object Action -EQ 'RemoveLicenseGroups').Count | Should -Be 0
         $null = Invoke-EobOffboardingPlan -Plan $plan -Now $script:BeforeExit -Confirm:$false
-        ($plan.Steps | Where-Object Action -EQ 'RemoveLicenseGroups').Status | Should -Be 'Skipped'
-        $plan.Offboarding.CompletedPhases | Should -Not -Contain 'Immediate'
+        $plan.Offboarding.CompletedPhases | Should -Contain 'Immediate'
         Should -Invoke -ModuleName $script:Ad Remove-ADGroupMember -Times 0
+    }
+
+    It 'behält auch über RemoveGroups klassifizierte Lizenzgruppen ohne Exchange' {
+        Mock -ModuleName $script:Off Get-EobOffboardingGroupClassification {
+            [pscustomobject]@{ Name = 'GRP-Lizenz-E3'; SamAccountName = 'GRP-Lizenz-E3'; DistinguishedName = 'CN=GRP-Lizenz-E3,OU=Gruppen,DC=example,DC=local'; Category = 'License'; Reason = ''; Remove = $true; RemoveAsLicense = $true }
+            [pscustomobject]@{ Name = 'GRP-Vertrieb'; SamAccountName = 'GRP-Vertrieb'; DistinguishedName = 'CN=GRP-Vertrieb,OU=Gruppen,DC=example,DC=local'; Category = 'Security'; Reason = ''; Remove = $true; RemoveAsLicense = $false }
+        }
+        $config = New-TestConfig
+        $request = New-TestRequest -Config $config -Data @{ ActionPhases = @{ ConvertToSharedMailbox = 'Immediate'; RemoveGroups = 'Immediate'; RemoveLicenseGroups = 'Off'; UpdateDescription = 'Off'; SetExpiration = 'Off'; DocumentMailboxPermissions = 'Off' } }
+        $plan = New-EobOffboardingPlan -Request $request -Config $config -Now $script:BeforeExit
+        @($plan.Steps | Where-Object Action -EQ 'RemoveGroups').Title | Should -Be @('Aus Gruppe entfernen: GRP-Vertrieb')
+        @($plan.Findings.Code) | Should -Contain 'OFF_LICENSE_CONVERSION_UNAVAILABLE'
+    }
+
+    It 'entfernt Lizenzen ohne Umwandlung, wenn das Konto keine E-Mail-Adresse hat' -ForEach @(
+        @{ Extra = '' }, @{ Extra = "[Exchange]`nMode=Online" }
+    ) {
+        $user = New-TestUser
+        $user.Mail = ''
+        Set-DirectoryMock -User $user
+        $config = New-TestConfig -Extra $Extra
+        $request = New-TestRequest -Config $config -Data @{ ActionPhases = $script:LicenseActions }
+        $plan = New-EobOffboardingPlan -Request $request -Config $config -Now $script:BeforeExit
+        @($plan.Findings.Code) | Should -Not -Contain 'OFF_LICENSE_CONVERSION_UNAVAILABLE'
+        $license = $plan.Steps | Where-Object Action -EQ 'RemoveLicenseGroups'
+        @($license).Count | Should -Be 1
+        @($license.DependsOn).Count | Should -Be 0
+        $null = Invoke-EobOffboardingPlan -Plan $plan -Now $script:BeforeExit -Confirm:$false
+        $license.Status | Should -Be 'Succeeded'
+        $plan.Offboarding.CompletedPhases | Should -Contain 'Immediate'
+    }
+
+    It 'entfernt Lizenzen ohne Umwandlung, wenn Exchange kein Postfach findet' {
+        Mock -ModuleName $script:Off Get-EobMailboxInfo { $null }
+        $request = New-TestRequest -Config $script:LicenseConfig -Data @{ ActionPhases = $script:LicenseActions }
+        $plan = New-EobOffboardingPlan -Request $request -Config $script:LicenseConfig -Now $script:BeforeExit
+        @($plan.Findings.Code) | Should -Contain 'OFF_NO_MAILBOX'
+        @(($plan.Steps | Where-Object Action -EQ 'RemoveLicenseGroups').DependsOn).Count | Should -Be 0
+        @($plan.Steps | Where-Object Action -EQ 'ConvertToSharedMailbox').Count | Should -Be 0
+    }
+}
+
+Describe 'Offboarding ohne optionale Integrationen' {
+    BeforeEach {
+        Set-DirectoryMock -User (New-TestUser -HomeDirectory '\\fs01.example.local\home$\mmuster')
+    }
+
+    It 'schließt alle Phasen der Vorlage <Template> ohne Exchange, Graph und Dateiserver ab' -ForEach @(
+        @{ Template = 'Standard' }, @{ Template = 'SofortigeSperrung' }, @{ Template = 'Befristet' }, @{ Template = 'Ruhestand' }
+    ) {
+        $config = New-TestConfig
+        $request = ConvertTo-EobOffboardingRequest -Config $config -InputObject @{
+            Identity = 'mmuster'; Template = $Template; ExitDate = '2027-03-31'; Ticket = 'CHG-1001'; AuthorizedHomeAccessAccount = 'chefin'
+        }
+        $plan = New-EobOffboardingPlan -Request $request -Config $config -Now $script:BeforeExit
+        Test-EobPlanExecutable -Plan $plan | Should -BeTrue
+        @($plan.Steps | Where-Object { $_.Handler -like '*Mailbox*' -or $_.Handler -like '*HomeDirectory*' -or $_.Handler -eq 'Revoke-EobEntraUserSession' }).Count | Should -Be 0
+        $null = Invoke-EobOffboardingPlan -Plan $plan -Phase Immediate, ExitDate, Retention -Now $script:BeforeExit -Confirm:$false
+        $plan.Status | Should -Be 'Succeeded'
+        $plan.Offboarding.CompletedPhases | Should -Be @('Immediate', 'ExitDate', 'Retention')
+    }
+
+    It 'meldet einen nicht konfigurierten Dateiserver nur als Hinweis' {
+        $config = New-TestConfig
+        $request = New-TestRequest -Config $config -Data @{
+            ActionPhases = @{ ArchiveHomeDirectory = 'Immediate'; GrantManagerHomeAccess = 'Immediate' }; AuthorizedHomeAccessAccount = 'chefin'
+        }
+        $plan = New-EobOffboardingPlan -Request $request -Config $config -Now $script:BeforeExit
+        $findings = @($plan.Findings | Where-Object Code -EQ 'OFF_FILESERVER_NOT_CONFIGURED')
+        $findings.Count | Should -Be 2
+        @($findings.Severity | Select-Object -Unique) | Should -Be @('Information')
+        @($plan.Findings.Code) | Should -Not -Contain 'OFF_HOME_NOT_ALLOWED'
+        @($plan.Findings.Message) | Should -Not -Match 'Cannot bind'
     }
 }
 
